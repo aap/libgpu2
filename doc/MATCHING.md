@@ -9,6 +9,13 @@ expected even for perfect source.
 | object | .text | .data | relocs | verification |
 |---|---|---|---|---|
 | addrconv | **100% byte-identical** (+.rodata) | identical | identical | differential 80.5M calls 0 mismatch; oracle replay bit-identical; probe suite 0 failures |
+| libgpu2 | 7/9 functions exact (GS_OpenSim off only by a callee-size displacement); GS_SaveImage + initPCRTC differ in DImode register/spill allocation only (doc/notes/libgpu2.md) | identical (+.rodata/.bss/.comment/.note) | identical (195 records) | differential 39710 checks 0 failures; oracle replay bit-identical (REPLACE="addrconv libgpu2") |
+
+libgpu2.o build settings differ from the rest of the archive and are
+forced by bytes: RH 4.2 gcc **2.7.2.1** (`GCC272_ALT=rh42-2721`),
+**`-O2 -m386`** — vs 2.7.2.3 `-O` (i486-configured) for the other 22.
+Empirically 2.7.2.1 vs 2.7.2.3 emit identical code at those flags, so
+the split only matters for `.comment` fidelity.
 
 ## addrconv: how the last 51 bytes fell (a case study)
 

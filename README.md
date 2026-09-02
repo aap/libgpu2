@@ -74,6 +74,7 @@ clut, dbg, drawprim) → pre1/pre3 → memory/bitblt/memif → dda → pcalc, tx
 Status (doc/MATCHING.md has the per-object scoreboard):
 
 - **addrconv** done: 100% byte-identical (.text/.data/.rodata/relocs), differential + oracle clean.
+- **libgpu2** done: 7/9 functions byte-exact, rest allocation-shape only; differential + oracle clean.
 
 Long-term goal beyond a buildable library: a native amd64 build and an
 interactive GS debugger on top of it — live framebuffer view, register

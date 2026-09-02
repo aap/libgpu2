@@ -183,8 +183,13 @@ deferred to the pcrtc attack.
   unread; or they may be constructed lazily/not at all.)
 - Name of the 0x10 front-end block; relation to `MyPP`/`PP`.
 - `DDATXM`: base class of TXM?  Who instantiates `PPDDA`?
-- The double 0x17 / missing 0x16 in `GS_OpenSim`'s init table.
-- `GPU2::GPU2` mangles as `Pciii` (4 args) but `GS_OpenSim` takes 5
-  (title,w,h,disp_on,field) — where does `field` go?
+- ~~The double 0x17 / missing 0x16 in `GS_OpenSim`'s init table~~ —
+  CONFIRMED original bug (TEX2_2 initialized twice, TEX2_1 never);
+  doc/notes/libgpu2.md, which also documents three more original bugs
+  (TRXPOS x/y swap in GS_SaveImage, GS_PutCtlPort DISPFB field
+  truncation, initPCRTC's inconsistent MAGH/MAGV arms).
+- ~~`GPU2::GPU2` mangles as `Pciii` (4 args) but `GS_OpenSim` takes 5~~ —
+  RESOLVED: ctor args are (title,w,h,disp_on); `field` goes to the bss
+  global `Field`, read by initPCRTC, GS_PutPort(0x7f) and GS_SaveImage.
 - PCRTCxif internals (the +0xa8 rect-intersection block, the three
   readers' 0x30 stride vs their 0x10 tail).
