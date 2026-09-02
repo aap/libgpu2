@@ -18,13 +18,56 @@ expected even for perfect source.
 | texfunc | instruction shape reproduced, regalloc differs (762 vs 826) | .rodata identical | same set | 3.7M calls 0 mismatch |
 | param | 4029/5571; **12/14 fn exact** | n/a | same set | 4.2M calls 0 mismatch (caught ShiftARGBSlope's unconditional extra >>2) |
 | pcalc | 40383 B in 36 fn; **11 fn byte-identical** (incl. the 2708-byte SortVertex), 1 more instruction-identical, 21 of the rest within 20 insns | n/a | `_vt.5PCalc` + reloc identical; **symbol table identical** | differential 20.4M PCalc::Put / 17.8M downstream Puts, 0 mismatches; 10-object hybrid replays r614, o519 and 11 RRV game dumps bit-identically; probe 0 failures |
+| dbg | **whole .o cmp-identical** (506/506 + .rodata/.ctors/.bss) | identical | identical | no harness needed (5 fn, all trivial); hybrid oracle bit-identical |
+| clut | **Lookup byte-identical**; load2 and LoadData same size and instruction-identical bar one register-pair swap each; load1 0x40 short (compiler-mod address form + the spill it forces) | n/a (+.rodata identical) | set+order identical, **symbol table identical** | differential 3.11M calls 0 mismatch (load1/load2/LoadData/Lookup, whole 0x498 object + overrun slack compared); hybrid oracle bit-identical |
+| bitblt | 2365/3580 B; **WritePixel (1057 B) and ReadPixel (1308 B) instruction-identical**; read/write/DoBitBLT shape-exact, 6/7/47 B of compiler-mod address forms | n/a (+.rodata identical) | set+order identical, **symbol table identical** | differential 1.82M calls 0 mismatch (own 16 MB VRAM each side, object compared every call); hybrid oracle bit-identical |
+| xif | **13/28 fn byte-identical** (783 B), 16/28 instruction-identical (926 B); the rest shape-exact (regalloc + address forms) | **identical** (both dither matrices) | set+order identical, **symbol table identical**; .rodata identical but for one 0x90-vs-0x00 pad byte | no harness possible (X11); 13-object hybrid links against the original pcrtc.o and replays r614, o519 and the RRV dumps bit-identically, probe 0 failures |
 
-Ten of 23 objects replaced; the 10-object hybrid replays r614, o519 and
-the RRV game dumps bit-identically (probe 0 failures).  New reusable
-lesson from txm_div: the era libc5 <math.h> declared math functions
-__attribute__((__const__)) and gcc 2.7 pops a const call's args
-immediately — declare rint/fabs (and abs!) locally with era attributes,
-never include modern headers.
+Fourteen of 23 objects replaced (addrconv libgpu2 pre1 pre3 slong div
+txm_div texfunc param pcalc dbg clut bitblt xif); the hybrid archive
+replays r614, o519 and the RRV game dumps bit-identically (probe 0
+failures).  New reusable lesson from txm_div: the era libc5 <math.h>
+declared math functions __attribute__((__const__)) and gcc 2.7 pops a
+const call's args immediately — declare rint/fabs (and abs!) locally with
+era attributes, never include modern headers.
+
+New lessons from dbg/clut/bitblt/xif (details in their doc/notes files):
+
+* **g++ 2.7 builds RTL for an inline member as soon as it parses it.**  Its
+  string constants land in `.rodata` and its library-call externals get a
+  `.globl` in *every* including TU, even when the function is never called.
+  That is where clut.o/bitblt.o/memif.o/memory.o/txm.o/pcrtc.o/gpu2.o's
+  unreferenced "BITBLTBUF: Depth is different" / "HWREG:Now not Host to
+  Local mode" pair and their unreferenced `memcpy` come from, and where
+  xif.o's whole set of Frame2d assert strings comes from.  Reproducing an
+  object's `.rodata` can therefore require writing *header* code that emits
+  no instructions at all.
+* **A merely declared class emits no vtable; one with an inline constructor
+  emits a local one in every TU** (plus weak copies of its inline virtuals).
+  That is why dbg.o carries `_vt.5PPOut`/`_vt.5PPDDA`.
+* **AddrConv has state.**  `addr, page, blk, bnk, pos, wd, np, bitpos` at
+  0x00..0x1c are AddrConv's own members, inherited by TexClut, BitBLT,
+  FBConfig and ZBConfig, together with an inline `Address()` that calls
+  `address_convert` and recomposes the word address — and divides `bw` and
+  `tbp` by 64 *itself*.  include/addrcalc.h carries that declaration;
+  include/addrconv.h's stateless one is the older, narrower view.  g++ 2.7
+  has no empty-base optimisation, so getting this wrong shifts every derived
+  member by 4.
+* **Two unrotated loop spellings, not one.**  clut.o wants
+  `for(;;) { if (i == N) break; ... i++; }`; bitblt.o wants
+  `for (i = 0; i != N; i++, data >>= sh, x++, count--)` with a comma
+  increment clause — that is what puts the deferred argument pop *before*
+  the increments, and WritePixel/ReadPixel do not match until it is written
+  that way.
+* **Taking a parameter's address keeps it in its incoming stack slot.**  The
+  1998 code reaches read-modify-write on `0x14(%ebp)` by passing `&r` to an
+  inline helper; a macro doing the same arithmetic promotes the parameter to
+  a register and loses ~50 bytes per function.
+* **`__assert_fail` must be declared `__attribute__((__noreturn__))`**, and
+  `__LINE__`/`__FILE__` in a header are byte-visible: xif.h's line numbers
+  are load-bearing (139/146/158).
+* **The 1998 assembler filled `.rodata` alignment with code nops** (0x90,
+  `89 f6`); era GAS 2.9.1 fills with zeroes.  One byte of xif.o.
 
 pre1/pre3 residuals look like the SAME compiler mod as the vfn-ref
 anomaly (a "force address through a value" change in expand): the

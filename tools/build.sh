@@ -36,8 +36,11 @@ if [ -n "$REPLACE" ]; then
             # the era compiler: old C++ ABI, so the object drops straight in.
             # libgpu2.o was built differently from the other 22 objects
             # (RH 4.2 gcc 2.7.2.1, -O2 -m386; see doc/notes/libgpu2.md).
+            # xif.c includes Xlib.h: -idirafter gets the host's X11 headers
+            # searched after the era libc ones (see doc/notes/xif.md).
             case $m in
             libgpu2) era="env GCC272_ALT=rh42-2721 gcc272/g++272 -O2 -m386";;
+            xif)     era="env GCC272_1998=1 gcc272/g++272 -O -idirafter /usr/include";;
             *)       era="gcc272/g++272 -O";;
             esac
             ${CC272:-$era} -I../include -c "../src/$m.c" -o "obj/$m.o"
