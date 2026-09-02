@@ -22,6 +22,8 @@ expected even for perfect source.
 | clut | **Lookup byte-identical**; load2 and LoadData same size and instruction-identical bar one register-pair swap each; load1 0x40 short (compiler-mod address form + the spill it forces) | n/a (+.rodata identical) | set+order identical, **symbol table identical** | differential 3.11M calls 0 mismatch (load1/load2/LoadData/Lookup, whole 0x498 object + overrun slack compared); hybrid oracle bit-identical |
 | bitblt | 2365/3580 B; **WritePixel (1057 B) and ReadPixel (1308 B) instruction-identical**; read/write/DoBitBLT shape-exact, 6/7/47 B of compiler-mod address forms | n/a (+.rodata identical) | set+order identical, **symbol table identical** | differential 1.82M calls 0 mismatch (own 16 MB VRAM each side, object compared every call); hybrid oracle bit-identical |
 | xif | **13/28 fn byte-identical** (783 B), 16/28 instruction-identical (926 B); the rest shape-exact (regalloc + address forms) | **identical** (both dither matrices) | set+order identical, **symbol table identical**; .rodata identical but for one 0x90-vs-0x00 pad byte | no harness possible (X11); 13-object hybrid links against the original pcrtc.o and replays r614, o519 and the RRV dumps bit-identically, probe 0 failures |
+| memory | 5690/5562 B; shape reproduced everywhere, no function byte-exact; `ReadStamp` (both classes) same size | n/a (+.rodata identical) | **set + order identical (144)**, **symbol table identical** | differential 4.80M calls 0 mismatch (own 16 MB Memory each side, config block compared every call, VRAM every 512 + per phase); hybrid oracle bit-identical |
+| memif | **9/19 fn byte-identical** (1237 of 7357 B); 2 more (DATest, SetTEST) same size and same instruction stream bar register allocation; 7405/7357 B | n/a (+.rodata identical but for one `89 f6`-vs-`00 00` pad) | **set + order identical (87)**; symbol table identical bar `_vt.5MemIF`'s position | differential 5.30M calls 0 mismatch (memory+memif linked per side); hybrid oracle bit-identical |
 
 Fourteen of 23 objects replaced (addrconv libgpu2 pre1 pre3 slong div
 txm_div texfunc param pcalc dbg clut bitblt xif); the hybrid archive
@@ -139,3 +141,73 @@ where stock 2.7.2.x computes each argument immediately before its own
 push.  No flag combination reproduces it.  `AASlope` (129 B) and
 `C_Hosei` (76 B) are the cheapest places to test a patch for it; if it
 lands, most of `Slope`'s and `LineSlope`'s residual should go with it.
+
+## memory/memif: the loop-rotation half-lesson, and four more
+
+`memory.o` (the 4 MB of local memory, the FB/ZB configs and the whole
+BITBLTBUF/TRXPOS/TRXREG/TRXDIR/HWREG transfer machine) and `memif.o` (the
+per-pixel back end: alpha test, destination alpha test, depth test, alpha
+blend, dither, colour clamp) are doc/notes/memory.md and
+doc/notes/memif.md.  With the two of them in the REPLACE list the hybrid
+still replays r614, o519 and the Ridge Racer V dump bit-identically with
+probe reporting 0 failures, and each of the two new objects does so alone
+as well.
+
+* **A block-scoped declaration inside a loop body is what stops g++ 2.7
+  rotating the loop.**  `expand_end_loop` (stmt.c) scans forward from the
+  loop's start label for the last conditional branch to the loop's *end*
+  label and rolls everything up to it to the bottom - unless the scan
+  first hits a `CALL_INSN`, a `CODE_LABEL`, or a `NOTE_INSN_BLOCK_BEG`,
+  which g++ emits for any compound statement that declares a variable.  So
+
+  ```c
+  for (;;) { Pixel *p; if (i == 8) break; ...; i++; }
+  ```
+
+  keeps the test at the top with a `jmp` back at the bottom, while the
+  identical loop without the declaration comes out bottom-tested (the
+  entry test folds away because `i` is provably 0).  This is the missing
+  half of the "unrotated loop" lesson above: clut.o's loops have no calls
+  and no declarations and did not need it, but every loop in memory.o and
+  memif.o does.  (`goto` out of the loop instead of `break` has the same
+  effect for the other reason - the branch does not target `end_label`.)
+* **An 8-byte struct is copied with a *ternary*, not `if`/`else`.**
+  `compute_record_mode` gives a two-int record DImode, so `a = b` expands
+  to load/store/load/store, but `a = c ? b0 : b1` loads both words in each
+  arm and shares one store pair.  memif.o's `Context()` does exactly that
+  for its `DAlphaTest` and `DepthTest` copies while using `if`/`else` for
+  the 0x10- and 0x18-byte ones; the single line turned three functions
+  byte-identical.  The same tell identifies `PixelStamp`'s x/y pair as a
+  nested 8-byte record rather than two `int`s - the callers copy it with
+  two loads and then two stores.
+* **`switch` on a `long long` silently calls `__cmpdi2`** once per case
+  label.  `switch ((data >> 24) & 0xf)` cost a kilobyte in
+  `Memory::SetRegister` before the value went through an `int`.
+* **A COND_EXPR assigned straight into a struct member stores into the
+  member in each arm; assigned to a scalar local it goes through a
+  register.**  `c.A = cond ? 0x80 : 0;` gives two `movl $imm,mem`;
+  `a = cond ? 0x80 : 0; c.A = a;` gives `xor %eax,%eax / test / mov
+  $0x80,%eax / mov %eax,mem`, which is what the 1998 objects have (gcc's
+  `safe_from_p` decides whether the target may double as the intermediate).
+  Same class: `x = call()` puts the struct return straight into `x`, while
+  `s.pix[i].c = c = ReadPixel(...)` makes `preexpand_calls` allocate a
+  `keep`-flagged temp per call site and copy temp -> c -> destination.
+* **A pointer local reproduces the compiler-mod address form - sometimes.**
+  The unfixed mod forces addresses through values, so each reference has
+  one use and `combine` folds the scale into a single
+  `lea disp(base,idx,N)` with 4-bit displacements on the members; stock
+  2.7.2.3 CSEs the *index*, emits `shl` and addresses every field with a
+  two-register `disp(idx,base,1)`.  That costs ~25 bytes a site and frees
+  a register, which is why the originals reload `this`/`mem`/`s` from
+  their incoming stack slots where ours keep them live.  Where the
+  original holds one address across several accesses (`MemIF::SetALPHA`,
+  `MemIF::SetTEST`) an explicit pointer local reproduces it exactly; where
+  it recomputes per basic block (all of memory.o's stamp loops) nothing
+  does.
+* g++ 2.7 does **not** inline a non-inline function inside its own
+  translation unit (verified), and emits an out-of-line copy of an inline
+  as *weak* when it is referenced but *global* when it is merely emitted -
+  so memif.o's global `Set*`/`Context` members prove the 1998 source
+  repeated their bodies (macros) inside `MemIF::Stamp`, and the weak
+  `PixelStamp::AAMask` proves it was declared in the class and defined
+  `inline` at the end of the .c file, after every use.
