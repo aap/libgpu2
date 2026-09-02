@@ -73,7 +73,7 @@ clut, dbg, drawprim) → pre1/pre3 → memory/bitblt/memif → dda → pcalc, tx
 
 Status (doc/MATCHING.md has the per-object scoreboard):
 
-- **addrconv** done: 96.5% byte-match, differential + oracle clean.
+- **addrconv** done: 100% byte-identical (.text/.data/.rodata/relocs), differential + oracle clean.
 
 Long-term goal beyond a buildable library: a native amd64 build and an
 interactive GS debugger on top of it — live framebuffer view, register

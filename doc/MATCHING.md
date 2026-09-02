@@ -8,25 +8,32 @@ expected even for perfect source.
 
 | object | .text | .data | relocs | verification |
 |---|---|---|---|---|
-| addrconv | 1412/1463 bytes (51 residual) | identical | identical | differential 80.5M calls 0 mismatch; oracle replay bit-identical (both dumps); probe suite 0 failures |
+| addrconv | **100% byte-identical** (+.rodata) | identical | identical | differential 80.5M calls 0 mismatch; oracle replay bit-identical; probe suite 0 failures |
 
-## addrconv residuals (51 bytes, no semantic content)
+## addrconv: how the last 51 bytes fell (a case study)
 
-All three patterns are expand/register-allocation shape, not behaviour:
+The compiler-archaeology agent proved every stock gcc 2.7.2.x emits
+identical code for given source (doc/compiler.md §7), so the residuals
+had to be source shape.  Both were:
 
-1. **Z-arm of the blk computation**: original emits
-   `mov %eax,%edi; and $1,%edi` (result into a fresh call-saved reg);
-   ours folds `and $1,%eax` in place.  Source-level temps (int/unsigned,
-   scoped or not) get copy-propagated by stock 2.7.2.3 — could not
-   reproduce; suspected compiler-mod artifact.  The `shr` (unsigned
-   shift) is reproduced with an `(unsigned)addr` cast.
-2. **wd table lookup order**: original computes the x term
-   (`(2x)&0xc`) before the y term (`(8y)&0x10`); stock gcc evaluates a
-   2D `table[y..][x..]` row-first.  Flat-table and `(y&2)>>1`-style
-   reformulations produce structurally different (worse) code.
-3. **esi/edi assignment ripples** downstream of 1-2, incl. three
-   2-byte swaps in the second switch's out stores.
+1. **Z-arm of blk**: the original ran through a *narrow-typed* temp —
+   `t = (unsigned)addr>>6 ^ 1; blk = t & 1;` with `t` any of
+   char/uchar/short/ushort (mode difference blocks copy-propagation,
+   producing `mov %eax,%edi; and $1,%edi`; an int/unsigned temp gets
+   coalesced away).  We chose `unsigned char`; the narrow type is pinned,
+   which of the four is not.
+2. **wd lookup**: not a 2D subscript at all — a byte-offset index
+   variable and a cast deref:
+   `i = ((x << 1) & 0xc) + ((y << 3) & 0x10); wd = *(int *)((char *)table + i);`
+   The `<<` spelling is pinned (`x + x` compiles differently); the
+   x-term-first order and the explicit index variable are pinned.
+3. The esi/edi ripples were pure cascade — they vanished when 1-2 were
+   fixed.
 
-Every other choice is pinned by bytes: the per-case page temp
-(`p = (...) & 0x1ff; addr = p << 7`), term order in each case, `-O`
-(not -O2), the Z range-check shape, jump tables at identical offsets.
+Also pinned by bytes: the per-case page temp (`p = (...) & 0x1ff;
+addr = p << 7`), term order in every case, `-O` (not -O2), the Z
+range-check shape, jump tables at identical offsets.  Lesson for the
+other objects: when a residual survives all flag hunting, suspect a
+source temp with a different type or a differently-spelled equivalent
+expression — evaluation order and pseudo-register structure follow the
+source exactly at -O.

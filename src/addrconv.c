@@ -14,6 +14,8 @@ AddrConv::address_convert(int x, int y, int psm, int bw, int tbp,
 	};
 	int p;
 	int addr;
+	int i;
+	unsigned char t;
 
 	switch (psm) {
 	case PSMCT32:
@@ -82,13 +84,15 @@ AddrConv::address_convert(int x, int y, int psm, int bw, int tbp,
 	}
 
 	page = addr >> 7;
-	if (psm == PSMZ32 || psm == PSMZ24 || psm == PSMZ16 || psm == PSMZ16S)
-		blk = ((unsigned)addr>>6 ^ 1) & 1;
-	else
+	if (psm == PSMZ32 || psm == PSMZ24 || psm == PSMZ16 || psm == PSMZ16S) {
+		t = (unsigned)addr>>6 ^ 1;
+		blk = t & 1;
+	} else
 		blk = (addr>>6) & 1;
 	bnk = ((addr>>6) & 1) ^ ((addr>>5) & 1);
 	pos = addr & 0x1f;
-	wd = table[(y>>1) & 1][(x>>1) & 3];
+	i = ((x << 1) & 0xc) + ((y << 3) & 0x10);
+	wd = *(int *)((char *)table + i);
 
 	switch (psm) {
 	case PSMCT32:
