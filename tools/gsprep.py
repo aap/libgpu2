@@ -50,7 +50,9 @@ def try_walk(d, off, end):
             off += 8192; n += 1
         else:
             return False
-    return off == end and n > 50
+    # walking to exactly end-of-file is the real validation; sparse dumps
+    # (menu frames with most content already in VRAM) can have ~30 records
+    return off == end and n > 3
 
 
 def find_stream(d, hint):
