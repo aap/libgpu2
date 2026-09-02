@@ -1,0 +1,25 @@
+# Sony-derived data: never committed
+orig/
+dumps/
+out/
+*.gs
+*.gs.zst
+
+# build products
+*.o
+tools/libgpu2-build.a
+tools/obj/
+tools/probe
+tools/swz
+tools/fmt
+tools/regprobe
+tools/gsreplay
+
+# replay/render output
+snap*.bin
+*.png
+
+# era compiler: binaries land here, keep the scripts/docs
+tools/gcc272/debs/
+tools/gcc272/root/
+__pycache__/
