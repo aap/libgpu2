@@ -26,10 +26,11 @@ expected even for perfect source.
 | memif | **9/19 fn byte-identical** (1237 of 7357 B); 2 more (DATest, SetTEST) same size and same instruction stream bar register allocation; 7405/7357 B | n/a (+.rodata identical but for one `89 f6`-vs-`00 00` pad) | **set + order identical (87)**; symbol table identical bar `_vt.5MemIF`'s position | differential 5.30M calls 0 mismatch (memory+memif linked per side); hybrid oracle bit-identical |
 | dda | **21/28 fn byte-identical** (2478 of 7320 fn bytes), 22/28 instruction-identical; of the 7 that differ, `Primitive` differs only in two call displacements and the other 6 are shape-exact (Stamping 2928/2944, InitWalk 1198/1189, ZaddSpan and sign_extent(long long) same size, ExtCslope/CaddSpan -2 each) | n/a (+.rodata `_vt.3DDA`, .note, .comment identical) | set+order identical (offsets shift with the size deltas); **symbol table identical bar 4 sizes** | differential 100000 primitives / 1.62M TXM pushes, 0 mismatches (whole 0x254 object compared on every downstream TXM call and after every Put; a 1-bit change to one sign-extend width is caught in 12 iterations); hybrid oracle bit-identical: probe 0 failures, r614, o519 and three RRV game dumps |
 | pcrtc | **9/43 fn byte-identical**, 19004/19309 B; every function shape-exact; `oldDispPixelMag` (1418 B), `SetDISPLAY1/2` (444 B), `SetSMODE1`, `DisplayPcrtc` same size; the ctors +48 each (one cse fold), the display loops -24..-153 (compiler-mod address forms + the loop-invariant hoisting they enable) | n/a | **set identical**, **symbol table identical** (names, bindings, types and order), `.rodata` reloc order identical, `.note`/`.comment` identical; `.rodata` identical bar two `8d 76` pad bytes *once xif.h's `__FILE__` is parameterised* (pcrtc.c wants `"../gpu2u/xif.h"`, xif.c `"xif.h"`) | differential 2.00M register writes / 140625 displays / 42.1M Xifbase callbacks / 2.18M object+VRAM checks, 0 mismatches (fake 9-entry Xifbase, own 16 MB Memory each side; five 1-bit canaries caught in 9-895 iterations); 18-object hybrid replays r614, o519 and 7+ RRV dumps bit-identically, probe 0 failures, `gsreplay -w` runs clean |
+| txm | **18/41 fn byte-identical**, 24570/25485 B (96.5%); every function shape-exact; `Texturing` (448 B), `ExtCov` (426), `AA1`, `SetCLAMP`, `SetTEX2`, `SetTEXCLUT`, `ClampQ` and `LMNFilter` same size with the same instruction stream (register allocation only), `NFilter` same instruction count; the rest is `Put` -528 and `GetOneTexel` -160, i.e. the compiler-mod address forms and the register pressure they cause | identical (the 0x100 `TXM::valid8`), and `.ctors`/`.note`/`.comment` with it; `.rodata` identical but for one `89 f6`-vs-`00 00` pad pair | **set + order identical (205)**, **symbol table identical** | differential 130.1M calls / 129.8M comparisons / 365650 fatal arms, 0 mismatches (own 96 MB mapped VRAM and fake MemIF each side; the whole 0x72c object *and* the clut[] overrun slack behind it compared after every call, plus every PixelStamp field TXM writes; six 1-token mutations all caught); 18-object hybrid: probe 0 failures, r614, o519 and four RRV dumps (1.4-18 MB) bit-identical to a pure-Sony build |
 
-Eighteen of 23 objects replaced (addrconv libgpu2 pre1 pre3 slong div
+Nineteen of 23 objects replaced (addrconv libgpu2 pre1 pre3 slong div
 txm_div texfunc param pcalc dbg clut bitblt xif memory memif dda
-pcrtc); the hybrid archive
+pcrtc txm); the hybrid archive
 replays r614, o519 and the RRV game dumps bit-identically (probe 0
 failures).  New reusable lesson from txm_div: the era libc5 <math.h>
 declared math functions __attribute__((__const__)) and gcc 2.7 pops a
@@ -318,3 +319,70 @@ in reverse declaration order *of the classes as well as of their members*,
 and the vtables in `.rodata` follow the same reverse order - between them
 they pin the whole header's shape.
 
+## txm: six more reusable lessons
+
+`txm.o` (the texture machine: the DDA's stamp expanded into a
+PixelStamp, LOD, the six filter modes, every PSM's texel fetch, the
+CLAMP modes, MTBA, antialias coverage and fog) is doc/notes/txm.md.
+With it in the REPLACE list the hybrid still replays r614, o519 and four
+Ridge Racer V dumps bit-identically with probe reporting 0 failures.
+
+* **A declaration that runs a constructor flushes the pending argument
+  pop.**  `TXM::Texturing`'s two `NormTexCoord::InitTable()` calls each
+  have their argument popped immediately (`add $0x4,%esp`) rather than
+  deferred, and no spelling of two adjacent statements reproduces that -
+  but writing them as `NormTexCoord u, v;` with an inline
+  `NormTexCoord() { InitTable(); }` does, exactly.  When a call's pop is
+  flushed for no visible reason, look for a constructor.
+* **`return` out of a loop is not `break`.**  g++ 2.7 rotates
+  `for (i = 0; ; i++) { if (i > N) break; ... }` (test at the bottom);
+  the same loop with `return` instead of `break` is *not* rotated,
+  because the branch does not target the loop's end label.  That single
+  keyword is the difference between 148 bytes and 151 for
+  `_GLOBAL_.I._3TXM.valid8`, and it is the third member of the
+  unrotated-loop family after "block-scoped declaration" and "goto".
+* **`(x >> n) & m` on a `long long` narrows to SImode, `* 64` does
+  not.**  `((data >> 14) & 0x3f) * 64` keeps the value in DImode - the
+  high word's `xor %ecx,%ecx` survives before every `shl` - while
+  `((data >> 14) & 0x3f) << 6` narrows and matches.  `convert_to_integer`
+  will pass a truncation down through `LSHIFT_EXPR` but not through
+  `MULT_EXPR`.  Thirty-odd sites in txm.o turn on that one character.
+* **`(A && B) & C` materialises the conditions; `A && B && C`
+  branches.**  `fold` only rewrites `TRUTH_ANDIF` into `TRUTH_AND` when
+  the right operand satisfies `simple_operand_p` - a bare DECL, never a
+  comparison - so three `&&`s always come out as short-circuit jumps.
+  The 1998 objects' `seta`/`setne`/`test` triples (28 pairs in txm.o's
+  colour and Z saturation alone) need a *bitwise* `&` between the last
+  two terms.
+* **`if (c) return X; ... return Y;` and `if (!c) { ...; return Y; }
+  return X;` lay the arms out differently.**  The first puts the early
+  return inline and inverts the branch; the second leaves the main path
+  falling through and jumps forward to the early return, which is what
+  `TXM::ClampQ` and `TXM::ClampLod` have (and, in the same family,
+  `if (e != 2) { ... } else r = 0x80;` for `ExtCov`'s coverage decode).
+* **A helper with many arguments must be a member, not a free inline or
+  a macro.**  txm.o's CLAMP wrap reads WMS/MINU/MAXU *inside the arm
+  that needs them* - so the arguments cannot be evaluated up front, which
+  rules out a free inline - *and* pins the coordinate to a stack slot -
+  which rules out a macro.  `TexAttr::WrapU(int &c, int w, int lod)` does
+  both, and the same shape (members reached through `this`, one `int &`)
+  is worth trying whenever those two tells appear together.
+
+And two smaller ones: a pseudo that is **set exactly once** has known
+`nonzero_bits`, so `t >> 2` on it comes out as `shr` while the same
+expression through a reused variable is `sar` (three separate locals in
+txm.o's 16-bit texel unpack, not one reused `t`); and a `switch` whose
+index is written out as a member reference compares the memory operand
+directly (`cmpl $0x3a,0x68(%ecx)`), while `int psm = attr.PSM; switch
+(psm)` puts it in a register for the compare and lets reload
+rematerialise it for the table jump - which is what both of txm.o's
+switches do.
+
+txm.o also confirms the vtable-linkage rule from memif/pcrtc from the
+other side: **all twenty** of `TXM`'s inline members are emitted
+out-of-line and *global* at the end of `.text`, after
+`_GLOBAL_.I.*`, in reverse declaration order - while an inline member of
+a class with no vtable in the TU (`Bits`, `Unpack16`, `TexCoordN`,
+`TexClutCtx::Context`) is not emitted at all.  Their order in the class
+body is therefore byte-visible, and getting it right is what makes the
+symbol table identical.
