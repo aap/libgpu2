@@ -29,3 +29,6 @@ tools/gcc272/rpms/
 tools/gcc272/alt/*/
 !tools/gcc272/alt/README.md
 !tools/gcc272/rpms/rpm2cpio.py
+tools/ps2/*.o
+tools/ps2/*.elf
+tools/ps2/*.map
