@@ -61,33 +61,82 @@ def prep(outdir, hw=None):
     assert d[:4] == b'GSR1'
     nrec = struct.unpack_from('<I', d, 4)[0]
     p, out, smode2 = 8, [], None
+
+    # Per-path GIF tag reassembly.  The dump interleaves records from the
+    # four paths at packet granularity, and a tag's payload can continue in
+    # a later record of the same path; the model keeps a tag state machine
+    # per path, and the real GIF only switches paths at tag boundaries.  A
+    # single-FIFO replay therefore must emit whole-tag chunks: buffer each
+    # path, flush every time its pending tags complete, and drop a path's
+    # residue whose payload never arrives (an in-flight transfer truncated
+    # by the vsync-aligned dump start/end -- the model parks it forever,
+    # contributing nothing).
+    pbuf = {}   # path -> [bytearray pending, qwords still owed to open tag]
+    nout = [0]  # records actually emitted (reframing merges and drops)
+    def flush(path):
+        buf, rem = pbuf[path]
+        if not buf:
+            return
+        # scan complete tags from the front
+        off, r = 0, 0
+        while off < len(buf):
+            if r == 0:
+                if off + 16 > len(buf):
+                    break
+                lo, = struct.unpack_from('<Q', buf, off)
+                nloop = lo & 0x7fff
+                flg = lo >> 58 & 3
+                nreg = lo >> 60 & 15 or 16
+                r = (nloop * nreg if flg == 0 else
+                     (nloop * nreg + 1) // 2 if flg == 1 else nloop)
+                need = (r + 1) * 16
+                if off + need > len(buf):
+                    break               # tag's payload incomplete: keep
+                off += need
+                r = 0
+            else:
+                assert 0
+        if off:
+            nout[0] += 1
+            out.append(struct.pack('<BBHIQ', 0, path, 0, off // 16, 0))
+            out.append(bytes(buf[:off]))
+            del buf[:off]
+        pbuf[path][1] = r
+
     for _ in range(nrec):
         typ, path = d[p], d[p + 1]
         nqw = struct.unpack_from('<I', d, p + 4)[0]
         p += 8
         if typ == 0:
-            out.append(struct.pack('<BBHIQ', 0, path, 0, nqw, 0))
-            out.append(d[p:p + nqw * 16])
+            buf = pbuf.setdefault(path, [bytearray(), 0])[0]
+            buf += d[p:p + nqw * 16]
+            flush(path)
             p += nqw * 16
         elif typ == 1:
+            nout[0] += 1
             out.append(struct.pack('<BBHIQ', 1, path, 0, 0, 0))
         elif typ == 2:
             regs = [struct.unpack_from('<Q', d, p + o)[0] for o in PRIV]
             if smode2 is None:
                 smode2 = regs[1]
+            nout[0] += 1
             out.append(struct.pack('<BBHIQ', 2, 0, 0, 4, 0))
             out.append(struct.pack('<8Q', *regs, 0))
             p += nqw * 16
         else:
             sys.exit(f'bad record type {typ} at {p - 8}')
     assert p == len(d), (p, len(d))
+    for path, (buf, rem) in sorted(pbuf.items()):
+        if buf:
+            print(f'  dropped path-{path} residue: {len(buf) // 16} qw '
+                  f'buffered, open tag owed {rem} more qw')
 
     with open(os.path.join(hw, 'hwstream.bin'), 'wb') as f:
-        f.write(struct.pack('<4sIII', b'GSHW', nrec,
+        f.write(struct.pack('<4sIII', b'GSHW', nout[0],
                             (smode2 or 0) & 0xffffffff,
                             1 if smode2 is not None else 0))
         f.write(b''.join(out))
-    print(f'{hw}: {nrec} records, smode2='
+    print(f'{hw}: {nout[0]} records ({nrec} in), smode2='
           f'{"none" if smode2 is None else hex(smode2)}')
 
 

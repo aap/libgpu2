@@ -80,6 +80,15 @@ run_one(const char *dir)
 	sceGsLoadImage li;
 	sceGsStoreImage si;
 
+	/* resume support: a bundle that already has its readback is done.
+	 * (to force a re-run, delete the hwvram.bin files) */
+	sprintf(path, "%s/hwvram.bin", dir);
+	if ((fd = sceOpen(path, SCE_RDONLY)) >= 0) {
+		sceClose(fd);
+		printf("gsrun: %s already done, skipping\n", dir);
+		return;
+	}
+
 	sprintf(path, "%s/hwstream.bin", dir);
 	if ((fd = sceOpen(path, SCE_RDONLY)) < 0)
 		die(path);
@@ -100,6 +109,12 @@ run_one(const char *dir)
 
 	sceGsResetGraph(0, inter ? SCE_GS_INTERLACE : SCE_GS_NOINTERLACE,
 	    SCE_GS_NTSC, ffmd ? SCE_GS_FRAME : SCE_GS_FIELD);
+	/* a bad stream can leave VIF1/GIF DMA mid-transfer (a truncated
+	 * GIFtag eats the rest of the frame and hangs the FIFO); the GS
+	 * reset above clears the GS side, these clear the channel side so
+	 * the next bundle starts clean */
+	*(volatile u_int *)0x10009000 = 0;      /* D1_CHCR (VIF1) */
+	*(volatile u_int *)0x1000a000 = 0;      /* D2_CHCR (GIF)  */
 
 	/* ---- seed local memory ---- */
 	sprintf(path, "%s/vram_hw.bin", dir);
