@@ -51,7 +51,9 @@ that residue is 60 words in 1,048,576 — 0.006%.
 
 - The model has no CSR/IMR/BUSDIR at all (control-port writes exit as
   unknown registers), so the silicon revision id has no model
-  counterpart to compare against.
+  counterpart to compare against.  For the record, this TOOL's GS
+  reads CSR = 0x5508682c: chip ID 0x55, revision 0x08
+  (`dsedb -d devtool dq 0x12001000 1`).
 - gsreplay's replay path (GS_PutPort 0x7f per vsync) drives the model's
   old unmerged display circuit; the real PCRTC merge is pseudo-register
   0x101, reachable only through gpu2reg.
