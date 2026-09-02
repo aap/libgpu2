@@ -49,9 +49,8 @@ PRIV = [0x00, 0x20, 0x70, 0x80, 0x90, 0xa0, 0xe0]  # PMODE SMODE2 DISPFB1
                                                    # DISPLAY1 DISPFB2
                                                    # DISPLAY2 BGCOLOR
 
-def main():
-    outdir = sys.argv[1]
-    hw = os.path.join(outdir, 'hw')
+def prep(outdir, hw=None):
+    hw = hw or os.path.join(outdir, 'hw')
     os.makedirs(hw, exist_ok=True)
 
     vram = np.fromfile(os.path.join(outdir, 'vram.bin'), dtype='<u4')
@@ -93,4 +92,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    prep(sys.argv[1])

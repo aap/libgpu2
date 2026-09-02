@@ -32,3 +32,4 @@ tools/gcc272/alt/*/
 tools/ps2/*.o
 tools/ps2/*.elf
 tools/ps2/*.map
+hwtest/
