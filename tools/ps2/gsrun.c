@@ -107,10 +107,12 @@ run_one(const char *dir)
 		die(path);
 	readfull(fd, vbuf, VMSIZE);
 	sceClose(fd);
-	FlushCache(0);
 	for (y = 0; y < 1024; y += STRIPH) {
 		sceGsSetDefLoadImage(&li, 0, 16, SCE_GS_PSMCT32,
 		    0, y, 1024, STRIPH);
+		/* the GIFtag packet in li is cached: flush AFTER building it,
+		 * before the DMA reads it from physical memory */
+		FlushCache(0);
 		sceGsExecLoadImage(&li, (u_long128 *)(vbuf + y * 4096));
 		sceGsSyncPath(0, 0);
 	}
@@ -162,6 +164,7 @@ run_one(const char *dir)
 	for (y = 0; y < 1024; y += STRIPH) {
 		sceGsSetDefStoreImage(&si, 0, 16, SCE_GS_PSMCT32,
 		    0, y, 1024, STRIPH);
+		FlushCache(0);
 		sceGsExecStoreImage(&si, (u_long128 *)(vbuf + y * 4096));
 		sceGsSyncPath(0, 0);
 	}
