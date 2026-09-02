@@ -25,9 +25,11 @@ expected even for perfect source.
 | memory | 5690/5562 B; shape reproduced everywhere, no function byte-exact; `ReadStamp` (both classes) same size | n/a (+.rodata identical) | **set + order identical (144)**, **symbol table identical** | differential 4.80M calls 0 mismatch (own 16 MB Memory each side, config block compared every call, VRAM every 512 + per phase); hybrid oracle bit-identical |
 | memif | **9/19 fn byte-identical** (1237 of 7357 B); 2 more (DATest, SetTEST) same size and same instruction stream bar register allocation; 7405/7357 B | n/a (+.rodata identical but for one `89 f6`-vs-`00 00` pad) | **set + order identical (87)**; symbol table identical bar `_vt.5MemIF`'s position | differential 5.30M calls 0 mismatch (memory+memif linked per side); hybrid oracle bit-identical |
 | dda | **21/28 fn byte-identical** (2478 of 7320 fn bytes), 22/28 instruction-identical; of the 7 that differ, `Primitive` differs only in two call displacements and the other 6 are shape-exact (Stamping 2928/2944, InitWalk 1198/1189, ZaddSpan and sign_extent(long long) same size, ExtCslope/CaddSpan -2 each) | n/a (+.rodata `_vt.3DDA`, .note, .comment identical) | set+order identical (offsets shift with the size deltas); **symbol table identical bar 4 sizes** | differential 100000 primitives / 1.62M TXM pushes, 0 mismatches (whole 0x254 object compared on every downstream TXM call and after every Put; a 1-bit change to one sign-extend width is caught in 12 iterations); hybrid oracle bit-identical: probe 0 failures, r614, o519 and three RRV game dumps |
+| pcrtc | **9/43 fn byte-identical**, 19004/19309 B; every function shape-exact; `oldDispPixelMag` (1418 B), `SetDISPLAY1/2` (444 B), `SetSMODE1`, `DisplayPcrtc` same size; the ctors +48 each (one cse fold), the display loops -24..-153 (compiler-mod address forms + the loop-invariant hoisting they enable) | n/a | **set identical**, **symbol table identical** (names, bindings, types and order), `.rodata` reloc order identical, `.note`/`.comment` identical; `.rodata` identical bar two `8d 76` pad bytes *once xif.h's `__FILE__` is parameterised* (pcrtc.c wants `"../gpu2u/xif.h"`, xif.c `"xif.h"`) | differential 2.00M register writes / 140625 displays / 42.1M Xifbase callbacks / 2.18M object+VRAM checks, 0 mismatches (fake 9-entry Xifbase, own 16 MB Memory each side; five 1-bit canaries caught in 9-895 iterations); 18-object hybrid replays r614, o519 and 7+ RRV dumps bit-identically, probe 0 failures, `gsreplay -w` runs clean |
 
-Fourteen of 23 objects replaced (addrconv libgpu2 pre1 pre3 slong div
-txm_div texfunc param pcalc dbg clut bitblt xif); the hybrid archive
+Eighteen of 23 objects replaced (addrconv libgpu2 pre1 pre3 slong div
+txm_div texfunc param pcalc dbg clut bitblt xif memory memif dda
+pcrtc); the hybrid archive
 replays r614, o519 and the RRV game dumps bit-identically (probe 0
 failures).  New reusable lesson from txm_div: the era libc5 <math.h>
 declared math functions __attribute__((__const__)) and gcc 2.7 pops a
@@ -260,3 +262,59 @@ as well.
   repeated their bodies (macros) inside `MemIF::Stamp`, and the weak
   `PixelStamp::AAMask` proves it was declared in the class and defined
   `inline` at the end of the .c file, after every use.
+
+## pcrtc: five more reusable lessons
+
+`pcrtc.o` (PMODE/SMODE/SYNC/DISPFB/DISPLAY/EXTBUF/EXTDATA/EXTWRITE/BGCOLOR,
+the two-circuit display merge and the X11 hand-off) is
+doc/notes/pcrtc.md.  With it in the REPLACE list the hybrid still replays
+r614, o519 and the Ridge Racer V dumps bit-identically with probe reporting
+0 failures, and `gsreplay -w` drives the model's real X window clean.
+
+* **An inlined call evaluates all its arguments into pseudos before the
+  body runs - and that is visible.**  Three assignments `c.R = r; c.G = g;
+  c.B = b;` emit load/store three times; an inline
+  `SetRGB(PixColor &c, int r, int g, int b)` emits *three loads and then
+  three stores*, with the loads coming out in the order g, b, r.  Two
+  functions in pcrtc.o have exactly that shape and are byte-exact only with
+  the helper.  The same mechanism is what lets `combine` turn
+  `(d >> 8) & 0xff` into a `movzbl 1(mem)` byte load: keeping the three
+  extractions in separate argument pseudos stops cse merging the loads
+  first.  (`MemRead32::ReadPixel` and `SetBGCOLOR`.)
+* **Passing a bitfield through an inline function stops `fold` folding the
+  shift back into the mask.**  `((d >> 5) & 0x1f) << 3` compiles to
+  `(d >> 2) & 0xf8`; `ext5((d >> 5) & 0x1f)` with
+  `inline int ext5(unsigned v) { return (v << 3) | (v >> 2); }` keeps
+  `and $0x1f` and `lea 0(,%eax,8)` apart, which is what the object has.
+* **A predicate that is materialised into a register and *then* tested came
+  from a function call, not from an `if`.**  `if (a || b)` branches
+  directly; `if (F())` with `F` inline goes through `preexpand_calls`,
+  which expands the call into a pseudo first, so the object shows
+  `xor %eax,%eax / ... / mov $1,%eax / test %eax,%eax / jne`.  The same
+  `preexpand_calls` makes an inline call inside an argument expression
+  evaluate *before* the other operand - and it is the only way to get one
+  subtraction out of `dy - VStart()`, because `fold` distributes the
+  subtraction into both arms of a COND_EXPR operand
+  (`dy - (c ? v/2 : v)` gives two subtractions, and the objects have one).
+* **`INTEGRATE_THRESHOLD` (`8 * (8 + nargs)`) decides function vs macro.**
+  A ~70-insn member with only `this` is *not* inlined and leaves a symbol
+  the original does not have, so it has to be a macro; a ~110-insn member
+  with two arguments *is* inlined and stays a function.  Both cases occur
+  in pcrtc.h and the object tells them apart.
+* **A store through a pointer kills cse's constant propagation through
+  memory** even between provably distinct offsets off one base: an
+  `rd[0] = &r32` between the constant initialisation of an array and the
+  comparison chain that reads it is what leaves 48 bytes of dead
+  comparison in both constructors.
+
+And one more piece of the vtable-linkage rule from memif: **the class with
+a non-inline virtual (the key method) gets its vtable *and every one of its
+inline members* emitted globally in that one TU** - which is why pcrtc.o
+carries `_vt.8PCRTCxif` plus fifteen global `PCRTCxif::Set*` copies while
+gpu2.o, which constructs a PCRTCxif, carries none of them; classes with no
+key method (PCRTC, PCRTCdmy, MemRead*, PixelBlend*, XWindowDump) get local
+vtables and weak inlines in every TU instead.  Deferred inline emission is
+in reverse declaration order *of the classes as well as of their members*,
+and the vtables in `.rodata` follow the same reverse order - between them
+they pin the whole header's shape.
+
