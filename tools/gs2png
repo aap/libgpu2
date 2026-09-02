@@ -104,6 +104,7 @@ def main():
         for suf in ('.zst', '.gs'):
             if outdir.endswith(suf):
                 outdir = outdir[:-len(suf)]
+        outdir = os.path.join(os.path.dirname(TOOLS), 'out', outdir)
 
     stream = os.path.join(outdir, 'stream.bin')
     if force or not os.path.exists(stream):

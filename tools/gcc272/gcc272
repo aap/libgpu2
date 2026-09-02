@@ -1,0 +1,52 @@
+#!/bin/sh
+# gcc272 -- GNU C 2.7.2.3 (Debian 2.0 "hamm", 1998) driven on a modern host.
+# Same machinery as ./g++272, but the C front end (cc1) and no C++ headers.
+#
+#   gcc272 [-O|-O2|-S|-c|-E|-I... -D... -U...] foo.c -o foo.o
+#
+# See g++272 for the environment knobs
+# (GCC272_MODERN_AS, GCC272_HOSTINC, GCC272_VERBOSE).
+
+set -e
+
+_self=$0
+if command -v readlink >/dev/null 2>&1; then
+    _r=$(readlink -f -- "$_self" 2>/dev/null) && [ -n "$_r" ] && _self=$_r
+fi
+here=$(cd -- "$(dirname -- "$_self")" && pwd -P)
+
+root=$here/root
+gcclib=$root/usr/lib/gcc-lib/i486-linux/2.7.2.3
+
+[ -x "$root/usr/bin/gcc" ] || {
+    echo "gcc272: missing $root/usr/bin/gcc -- run $here/fetch.sh" >&2
+    exit 1
+}
+
+linking=yes
+n=$#
+i=0
+while [ $i -lt $n ]; do
+    a=$1; shift; i=$((i + 1))
+    case $a in
+    -c|-S|-E|-M|-MM)                       linking=no ;;
+    -fno-strict-aliasing|-fno-stack-protector|-std=gnu89|-std=c89)
+                                           continue ;;
+    esac
+    set -- "$@" "$a"
+done
+
+set -- -nostdinc \
+       -isystem "$gcclib/include" \
+       -isystem "$root/usr/include" \
+       "$@"
+[ -n "$GCC272_HOSTINC" ] && set -- -isystem /usr/include "$@"
+[ "$linking" = yes ] && set -- -B"$root/usr/lib/" -L"$root/usr/lib" "$@"
+set -- -B"$here/shim/" "$@"
+
+GCC_EXEC_PREFIX=$root/usr/lib/gcc-lib/
+export GCC_EXEC_PREFIX
+
+[ -n "$GCC272_VERBOSE" ] && echo "+ $root/usr/bin/gcc $*" >&2
+
+exec "$root/usr/bin/gcc" "$@"

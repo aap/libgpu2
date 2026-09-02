@@ -33,7 +33,8 @@ if [ -n "$REPLACE" ]; then
         if [ -f "../src/$m.o" ]; then
             cp "../src/$m.o" "obj/$m.o"
         else
-            ${CC272:-$CC} -I"$INC" -I../include -c "../src/$m.c" -o "obj/$m.o"
+            # the era compiler: old C++ ABI, so the object drops straight in
+            ${CC272:-gcc272/g++272 -O} -I../include -c "../src/$m.c" -o "obj/$m.o"
         fi
     done
     cp "$ORIG/lib/libgpu2-patched.a" "$LIB"

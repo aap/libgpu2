@@ -1,0 +1,12 @@
+#!/bin/sh
+# Assembler shim used by the 1998 gcc 2.7.2.3 driver.
+# Default: the era GNU as 2.9.1 from Debian hamm binutils (byte-faithful output).
+# Set GCC272_MODERN_AS=1 to use the host's modern `as --32` instead.
+here=$(cd -- "$(dirname -- "$0")" && pwd)
+root=$(cd -- "$here/../root" && pwd)
+if [ -n "$GCC272_MODERN_AS" ] || [ ! -x "$root/usr/bin/as" ]; then
+    exec as --32 -mx86-used-note=no "$@"
+fi
+LD_LIBRARY_PATH="$root/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH
+exec "$root/usr/bin/as" "$@"

@@ -1,0 +1,22 @@
+--- a/cp/class.c
++++ b/cp/class.c
+@@ -482,7 +482,18 @@
+   /* Save the intermediate result in a SAVE_EXPR so we don't have to
+      compute each component of the virtual function pointer twice.  */ 
+   if (!building_cleanup && TREE_CODE (aref) == INDIRECT_REF)
+-    TREE_OPERAND (aref, 0) = save_expr (TREE_OPERAND (aref, 0));
++    {
++      /* libgpu2 reconstruction patch: keep the address of the vtable entry
++         in its own pseudo instead of letting expand_expr fold the constant
++         entry offset into each MEM.  Reproduces the 1998 codegen:
++            addl $N,%reg ; movswl (%reg),.. ; movl 4(%reg),..
++         instead of stock 2.7.2.3's
++            movswl N(%reg),.. ; movl N+4(%reg),..                      */
++      tree vfa = TREE_OPERAND (aref, 0);
++      tree vft = TREE_TYPE (vfa);
++      vfa = save_expr (build1 (NOP_EXPR, ptr_type_node, vfa));
++      TREE_OPERAND (aref, 0) = build1 (NOP_EXPR, vft, vfa);
++    }
+ 
+   if (flag_vtable_thunks)
+     return aref;

@@ -1,0 +1,28 @@
+#!/bin/sh
+# Linker shim used by the 1998 gcc 2.7.2.3 driver.
+# Uses era GNU ld 2.9.1 (Debian hamm binutils) against the extracted 1998
+# glibc 2.0.7 / libstdc++ 2.7.2.8 tree.
+#
+#   GCC272_MODERN_LD=1    use the host `ld -m elf_i386' instead
+#   GCC272_HOST_INTERP=1  record /lib/ld-linux.so.2 as the interpreter and
+#                         omit the rpath, so the binary is relocatable and
+#                         runs against the host's 32-bit glibc (this is how
+#                         the extracted 1998 binaries themselves run here).
+#                         Default: point at the era ld.so + era libraries.
+here=$(cd -- "$(dirname -- "$0")" && pwd)
+root=$(cd -- "$here/../root" && pwd)
+if [ -n "$GCC272_MODERN_LD" ] || [ ! -x "$root/usr/bin/ld" ]; then
+    exec ld -m elf_i386 "$@"
+fi
+LD_LIBRARY_PATH="$root/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+LDEMULATION=elf_i386
+export LD_LIBRARY_PATH LDEMULATION
+if [ -n "$GCC272_HOST_INTERP" ]; then
+    exec "$root/usr/bin/ld" -L"$root/usr/lib" -L"$root/lib" \
+         -rpath-link "$root/lib:$root/usr/lib" \
+         "$@" --dynamic-linker /lib/ld-linux.so.2
+fi
+exec "$root/usr/bin/ld" -L"$root/usr/lib" -L"$root/lib" \
+     -rpath-link "$root/lib:$root/usr/lib" \
+     -rpath "$root/lib:$root/usr/lib" \
+     "$@" --dynamic-linker "$root/lib/ld-linux.so.2"

@@ -71,6 +71,15 @@ Attack order: leaf arithmetic (addrconv, slong, div, txm_div, texfunc,
 clut, dbg, drawprim) → pre1/pre3 → memory/bitblt/memif → dda → pcalc, txm
 → gpu2reg, gpu2vec, pcrtc/xif → gpu2, libgpu2.
 
+Status (doc/MATCHING.md has the per-object scoreboard):
+
+- **addrconv** done: 96.5% byte-match, differential + oracle clean.
+
+Long-term goal beyond a buildable library: a native amd64 build and an
+interactive GS debugger on top of it — live framebuffer view, register
+state, stepping through primitives (the virtual-Put tap architecture is
+exactly the hook point for this).
+
 ## Ground rules
 
 - Struct layouts come from evidence only: `__builtin_new` sizes, ctor

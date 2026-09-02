@@ -23,3 +23,5 @@ snap*.bin
 tools/gcc272/debs/
 tools/gcc272/root/
 __pycache__/
+tools/gcc272/src/
+tools/gcc272/patched/

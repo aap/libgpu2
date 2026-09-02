@@ -1,0 +1,93 @@
+#!/bin/sh
+# g++272 -- GNU C++ 2.7.2.3 (Debian 2.0 "hamm", 1998) driven on a modern host.
+#
+#   g++272 [-O|-O2|-S|-c|-E|-I... -D... -U...] foo.cc -o foo.o
+#
+# Pipeline:  era cpp 2.7.2.3  ->  era cc1plus 2.7.2.3  ->  era GNU as 2.9.1
+# All three are the original 1998 i386 ELF binaries; they run unmodified
+# against the host's 32-bit glibc (no chroot, no era loader, no root).
+#
+# Environment knobs:
+#   GCC272_MODERN_AS=1   assemble with the host `as --32' instead of GAS 2.9.1.
+#                        GAS 2.9.1 is the default because it reproduces the
+#                        1998 .align nop-fill patterns and section layout
+#                        byte-for-byte; modern GAS does not.
+#   GCC272_HOSTINC=1     also search the host /usr/include (off by default)
+#   GCC272_VERBOSE=1     echo the driver command line before running it
+#   GCC272_1998=1        use ./patched/.../cc1plus -- a vanilla FSF gcc-2.7.2.3
+#                        cc1plus rebuilt here with patches/01-*.patch, which
+#                        restores the virtual-call address form actually used
+#                        by the 1998 libgpu2 objects (see doc/compiler.md).
+#                        Implies -m486.  Only meaningful at -O, not -O2.
+#                        OFF by default: the default path is the unmodified
+#                        1998 Debian binary.
+#
+# Defaults deliberately match the 1998 libgpu2 objects:
+#   * NO -fvtable-thunks -> non-thunk `_vt.<class>' vtables whose entries are
+#     8 bytes {short delta; short index; void (*pfn)();}, preceded by one
+#     all-zero entry.  (-fvtable-thunks would give `__vt_<class>' and 4-byte
+#     entries -- never pass it.)
+#   * exceptions off (gcc 2.7 needs an explicit -fhandle-exceptions)
+#   * no RTTI (gcc 2.7 has none), no -fPIC, frame pointers kept.
+#
+# Flag compatibility: a few modern spellings are translated because gcc 2.7
+# rejects them.  See README.md.
+
+set -e
+
+# --- locate ourselves (works from any cwd, and through symlinks) -----------
+_self=$0
+if command -v readlink >/dev/null 2>&1; then
+    _r=$(readlink -f -- "$_self" 2>/dev/null) && [ -n "$_r" ] && _self=$_r
+fi
+here=$(cd -- "$(dirname -- "$_self")" && pwd -P)
+
+root=$here/root
+gcclib=$root/usr/lib/gcc-lib/i486-linux/2.7.2.3
+
+[ -x "$root/usr/bin/g++272" ] || {
+    echo "g++272: missing $root/usr/bin/g++272 -- run $here/fetch.sh" >&2
+    exit 1
+}
+
+# --- pass 1: translate flags gcc 2.7.2.3 does not know, and detect whether
+# --- this is a link step (adding link -B/-L on a compile-only command line
+# --- makes the era driver warn "file path prefix ... never used").
+linking=yes
+n=$#
+i=0
+while [ $i -lt $n ]; do
+    a=$1; shift; i=$((i + 1))
+    case $a in
+    -c|-S|-E|-M|-MM)      linking=no ;;
+    # already the 2.7 default; accepted for convenience, then dropped
+    -fno-exceptions|-fno-rtti|-fno-strict-aliasing|-fno-threadsafe-statics)
+                          continue ;;
+    -fexceptions)         a=-fhandle-exceptions ;;
+    esac
+    set -- "$@" "$a"
+done
+
+# --- pass 2: prepend our prefixes and the era header search path -----------
+# -isystem (not -I) so the user's own -I directories still come first.
+set -- -nostdinc -nostdinc++ \
+       -isystem "$root/usr/include/g++" \
+       -isystem "$gcclib/include" \
+       -isystem "$root/usr/include" \
+       "$@"
+[ -n "$GCC272_HOSTINC" ] && set -- -isystem /usr/include "$@"
+[ "$linking" = yes ] && set -- -B"$root/usr/lib/" -L"$root/usr/lib" "$@"
+set -- -B"$here/shim/" "$@"
+
+# --- where the era driver finds cc1plus / cpp ------------------------------
+if [ -n "$GCC272_1998" ] && [ -x "$here/patched/i486-linux/2.7.2.3/cc1plus" ]; then
+    GCC_EXEC_PREFIX=$here/patched/
+    set -- -m486 "$@"          # the patched cc1plus is configured i386-pc-linux-gnu
+else
+    GCC_EXEC_PREFIX=$root/usr/lib/gcc-lib/
+fi
+export GCC_EXEC_PREFIX
+
+[ -n "$GCC272_VERBOSE" ] && echo "+ $root/usr/bin/g++272 $*" >&2
+
+exec "$root/usr/bin/g++272" "$@"
