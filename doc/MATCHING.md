@@ -24,6 +24,7 @@ expected even for perfect source.
 | xif | **13/28 fn byte-identical** (783 B), 16/28 instruction-identical (926 B); the rest shape-exact (regalloc + address forms) | **identical** (both dither matrices) | set+order identical, **symbol table identical**; .rodata identical but for one 0x90-vs-0x00 pad byte | no harness possible (X11); 13-object hybrid links against the original pcrtc.o and replays r614, o519 and the RRV dumps bit-identically, probe 0 failures |
 | memory | 5690/5562 B; shape reproduced everywhere, no function byte-exact; `ReadStamp` (both classes) same size | n/a (+.rodata identical) | **set + order identical (144)**, **symbol table identical** | differential 4.80M calls 0 mismatch (own 16 MB Memory each side, config block compared every call, VRAM every 512 + per phase); hybrid oracle bit-identical |
 | memif | **9/19 fn byte-identical** (1237 of 7357 B); 2 more (DATest, SetTEST) same size and same instruction stream bar register allocation; 7405/7357 B | n/a (+.rodata identical but for one `89 f6`-vs-`00 00` pad) | **set + order identical (87)**; symbol table identical bar `_vt.5MemIF`'s position | differential 5.30M calls 0 mismatch (memory+memif linked per side); hybrid oracle bit-identical |
+| dda | **21/28 fn byte-identical** (2478 of 7320 fn bytes), 22/28 instruction-identical; of the 7 that differ, `Primitive` differs only in two call displacements and the other 6 are shape-exact (Stamping 2928/2944, InitWalk 1198/1189, ZaddSpan and sign_extent(long long) same size, ExtCslope/CaddSpan -2 each) | n/a (+.rodata `_vt.3DDA`, .note, .comment identical) | set+order identical (offsets shift with the size deltas); **symbol table identical bar 4 sizes** | differential 100000 primitives / 1.62M TXM pushes, 0 mismatches (whole 0x254 object compared on every downstream TXM call and after every Put; a 1-bit change to one sign-extend width is caught in 12 iterations); hybrid oracle bit-identical: probe 0 failures, r614, o519 and three RRV game dumps |
 
 Fourteen of 23 objects replaced (addrconv libgpu2 pre1 pre3 slong div
 txm_div texfunc param pcalc dbg clut bitblt xif); the hybrid archive
@@ -141,6 +142,54 @@ where stock 2.7.2.x computes each argument immediately before its own
 push.  No flag combination reproduces it.  `AASlope` (129 B) and
 `C_Hosei` (76 B) are the cheapest places to test a patch for it; if it
 lands, most of `Slope`'s and `LineSlope`'s residual should go with it.
+
+## dda: five more reusable lessons
+
+The rasterizer fell to source *shape* almost everywhere; the residuals
+are register allocation, not structure.  What pinned it:
+
+1. **`abs()` is `__attribute__((__const__))` in dda.c** — the object
+   pops each `abs` argument immediately instead of deferring it.  That
+   is the era libc5 `<stdlib.h>` spelling, and it is the *opposite* of
+   pre3.o/pcalc.o, which need a plain `extern "C" int abs(int);`.  The
+   attribute is a per-object decision; read it off the `add $0x4,%esp`
+   placement, not off the archive.
+2. **A COND_EXPR flushes the pending argument pop, and that decides
+   what CSE can still see.**  `x = a < 0 ? 1 : 0;` and `x = a < 0;`
+   emit the same arithmetic (`shr $31`), but the ternary makes
+   `expand_expr` call `do_pending_stack_adjust()` first, so the
+   `add $N,%esp` lands *before* the statement.  In dda.o that ordering
+   is load-bearing — with the pop in the wrong place the register
+   allocation changes and 80 bytes of cross-jumping reshape.  When a
+   deferred pop sits somewhere you cannot explain, look for a `?:`.
+3. **`x & ~0x3f` compiles to `andb $0xc0,%dl`** — a byte AND that
+   leaves the top 24 bits alone means the constant was `0xffffffc0`,
+   never `0xc0`.
+4. **`a = 4; if (c) a = 8;` and `if (c) a = 8; else a = 4;` are not the
+   same object code**: both emit two stores, but the if/else form loads
+   the condition's operand *before* the first store.  dda.c uses one
+   spelling in `InitWalk` and the other in `Stamping`.
+5. **For `long long`, `x << 1` and `x * 2` differ**: `<<1` gives
+   `shld/shl`, `*2` and `x + x` give `add/adc`.  `InitWalk` uses both
+   in adjacent statements and the bytes say which is which.
+
+One more, from `sign_extent(long long, int)`: **a block-scoped
+`long long m` for the mask in *one* arm of the `if` is the difference
+between 324 bytes and the original's 308** — the then-arm reads
+`{ long long m = ((long long)1 << n) - 1; r = v & m; }` while the
+else-arm keeps its mask inline.  Making both arms symmetric (either
+way) misses by 16 or by 50.  Getting that one right also turned the
+five `Ext*` wrappers byte-identical, because their only remaining
+difference was the call displacement into it.
+
+Unsolved in dda.o (4 B x 3 sites): the original's
+`lea 0x1(%esi),%edx; sub %edx,%ecx` for `sw - (i+1)`.  gcc's `fold`
+reassociates that to `(sw-1) - i` (a `dec`) for every spelling we
+tried, and an explicit `k = i + 1` local is computed once, not three
+times.  Also unexplained: `ExtCslope`/`CaddSpan`'s `mov %ebx,%edx`
+before the conditional `inc` (2 B each), and 16 B of DImode temp
+allocation in `sign_extent(long long, int)`.
+
 
 ## memory/memif: the loop-rotation half-lesson, and four more
 
