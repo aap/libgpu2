@@ -163,6 +163,15 @@ gate_init(void)
 
 static long nskipped;
 
+/* ---------------- 1998-dialect guards ----------------
+ * The model exits fatally on conditions the retail GS accepts.  Guard 1:
+ * TEX1 MTBA=1 ("Width must be same as Height when MTBA mode" unless the
+ * texture is square; the trap can also fire later, from TEX0/TEX2 state
+ * re-evaluation).  Clear the bit always; MIPTBP then stays whatever
+ * was written explicitly, which can only miscolor mipmapped texturing,
+ * not kill the replay. */
+static long nmtba;
+
 /* ---------------- experiment knobs ----------------
  * -Z A:B:HEXZ   force the Z of every vertex kick numbered A..B
  * -x A:B        make vertex kicks A..B write nothing (FBMSK/ZMSK forced)
@@ -206,6 +215,10 @@ put(int addr, u64 data)
 	if (addr < 0 || addr > 0x7f || !ok_reg[addr]) {
 		nskipped++;
 		return;
+	}
+	if ((addr == 0x14 || addr == 0x15) && (data >> 9 & 1)) {
+		data &= ~(1ULL << 9);
+		nmtba++;
 	}
 	if (addr == 0x4c || addr == 0x4d) {
 		last_frame[addr - 0x4c] = data;
@@ -498,8 +511,8 @@ main(int argc, char **argv)
 	check(S_END, 0, "end");
 	if (!quiet)
 		printf("done: xfer=%ld reg=%ld prim=%ld draw=%ld vsync=%ld "
-		    "skipped-regs=%ld\n", c_xfer, c_reg, c_prim, c_draw,
-		    c_vsync, nskipped);
+		    "skipped-regs=%ld mtba-cleared=%ld\n", c_xfer, c_reg,
+		    c_prim, c_draw, c_vsync, nskipped, nmtba);
 	GS_CloseSim();
 	return 0;
 }
