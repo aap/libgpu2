@@ -549,3 +549,268 @@ wrappers swallow it). Source using `dynamic_cast`/`typeid` will not compile.
   — vanilla FSF source, kept in `tools/gcc272/src/`, used only for
   `patched/`.
 * `tools/gcc272/SHA256SUMS` — checksums for all of the above.
+
+---
+
+## 7. Follow-up: was it a vendor compiler? (Red Hat / Cygnus)
+
+Section 3 concluded that the 1998 compiler was not stock gcc 2.7.2.3, and left
+open *whose* it was. Three pieces of evidence pointed at Red Hat 4.x:
+
+* the shipped sample binary `gpu2/i386-pc-linux-gnu/sample/smplgpu2` is
+  **libc5** (`/lib/ld-linux.so.1`, `libc.so.5`, `libm.so.5`) — a 1997-era
+  Red Hat 4.x box, not a glibc distribution;
+* `orig/lib/libgpu2.o` alone says **`GCC: (GNU) 2.7.2.1`**; the other 22 say
+  `2.7.2.3` — the version mix you would get from a box whose compiler was
+  updated mid-project;
+* Sony's PS2 toolchains were Cygnus-built, and Cygnus shipped locally
+  patched gcc 2.7.2.x in GNUPro.
+
+One more fingerprint clinches the distribution. The sample binary's linked-in
+`libgcc.a` still carries its build path:
+
+```
+$ strings -a gpu2/i386-pc-linux-gnu/sample/smplgpu2 | grep /usr/src
+/usr/src/colgate/BUILD/gcc-2.7.2.1/
+```
+
+`colgate` is Red Hat's build root for **Red Hat Linux 4.0 "Colgate"**, whose
+gcc was 2.7.2.1. So the host really was a Red Hat 4.x machine and the 2.7.2.1
+half of the version mix is Red Hat's own RPM.
+
+### 7.1 Candidates tested
+
+All from `http://ftp.icm.edu.pl/packages/linux-redhat/linux/`, kept in
+`tools/gcc272/rpms/`. `.deb`-style extraction is not possible for RPMs and
+neither `rpm` nor `rpm2cpio` is installed here, so `tools/gcc272/rpms/rpm2cpio.py`
+(30 lines: skip the 96-byte lead, walk the two headers, gunzip the cpio
+payload) does the job, piped into `cpio -idmu`.
+
+| # | candidate | how obtained |
+|---|---|---|
+| 1 | Debian hamm `g++272` **2.7.2.3-4.8** | baseline, §1 |
+| 2 | Red Hat 5.0 `gcc-c++-2.7.2.3-8` | RPM, runs natively (glibc) |
+| 3 | Red Hat 4.2 `gcc-c++-2.7.2.1-2` | RPM — libc5, **would not run**, see 7.3 |
+| 4 | gcc **2.7.2.1** rebuilt from RH 4.2's `gcc-2.7.2.1-2.src.rpm` with Red Hat's `rth-gcc-2.7.2-960814` + `gcc-2.7.2-flow` patches | built here with the era gcc as `$(CC)` |
+| 5 | vanilla FSF gcc-2.7.2.3 | §3.2 |
+| 6 | vanilla FSF gcc-2.7.2.3 + inverted `ADDRESS_COST` (Pentium-tuning hypothesis, 7.4) | built here |
+
+### 7.2 Results
+
+Test (a) is the vtable-dispatch form; (b) is `src/addrconv.c` compiled `-O`
+and its `.text` compared byte-for-byte with `orig/lib/addrconv.o`
+(`cmp -l | wc -l`, both 1463 bytes).
+
+| candidate | (a) vfn form | (b) addrconv diff |
+|---|---|---|
+| 1 Debian hamm 2.7.2.3-4.8 | folded | **51** |
+| 2 Red Hat 5.0 2.7.2.3-8 | folded | **51** |
+| 4 Red Hat 4.2 2.7.2.1 (RH patches) | folded | **51** |
+| 5 vanilla FSF 2.7.2.3 | folded | **51** |
+| 6 vanilla + inverted `ADDRESS_COST` | folded | **51** |
+| — vanilla + `patches/01-*` (§3.4) | **unfolded (matches 1998)** | 51 |
+
+And the strongest single result of this round:
+
+> **All five stock/vendor builds emit byte-identical `.text` for
+> `addrconv.c`.** Not merely the same diff count — the same 1463 bytes.
+
+```
+o_rh50   vs hamm: IDENTICAL
+o721     vs hamm: IDENTICAL      (2.7.2.1, Red Hat patches)
+o_pat    vs hamm: IDENTICAL      (vanilla + vfn patch)
+```
+
+So gcc 2.7.2.x i386 codegen for straight-line C is completely stable across
+vendors *and* across the 2.7.2.1 → 2.7.2.3 point releases. Red Hat's patch
+sets do not touch it: the 5.0 spec applies nine patches, of which only
+`rth-gcc-2.7.2-960814.diff` (Richard Henderson's, mostly Alpha) reaches
+`combine.c` and `c-common.c`, and Red Hat 4.2's `gcc-2.7.2-linux.diff` turns
+out to touch only `Makefile.in` and two Ada files. `cp/class.c`'s
+`build_vfn_ref` is **textually identical** in 2.7.2.1 and 2.7.2.3.
+
+### 7.3 The Red Hat 4.2 binaries would not run
+
+They are libc5. `/lib/ld-linux.so.1` and `libc.so.5` were extracted from
+`libc-5.3.12-18.5` and `ld.so-1.7.14-5` and supplied through an unprivileged
+`bwrap` mount namespace (`--dir /lib --ro-bind …`), which is how a libc5
+binary can be run here without root. The loader works, the binary starts —
+and then every one of them dies in its first allocation:
+
+```
+gcc:  virtual memory exhausted          (the driver's xmalloc)
+cc1:  <file>: Out of memory             (fopen -> malloc, ENOMEM)
+```
+
+`strace` shows the `brk()` calls succeeding and **no `open()` of the input
+file at all**, i.e. `fopen` returns NULL before it ever gets to the syscall —
+libc5's malloc failing. `setarch linux32 -L -R` (legacy VA layout, no
+randomisation), swapping in Debian hamm's much later `libc5 5.4.38`, short vs
+long paths, and an empty `/etc/ld.so.cache` all made no difference. Rather
+than keep digging, candidate 4 was rebuilt from Red Hat's own source RPM,
+which answers the same question. The extracted libc5 tree is kept in
+`tools/gcc272/alt/rh42/libc5/` for anyone who wants another go.
+
+### 7.4 The Pentium-tuning hypothesis, and why it is wrong
+
+gcc 2.7.2.3's `config/i386/i386.h` has
+
+```c
+#define ADDRESS_COST(RTX) \
+  ((CONSTANT_P (RTX)						\
+    || (GET_CODE (RTX) == PLUS && CONSTANT_P (XEXP (RTX, 1))	\
+	&& REG_P (XEXP (RTX, 0)))) ? 0				\
+   : REG_P (RTX) ? 1						\
+   : 2)
+```
+
+`disp(%reg)` costs **0** and a bare register costs **1** — CSE is told to
+*prefer* folding a constant into an address. That looks exactly like the
+knob that would explain the fold, and a Pentium-tuned vendor compiler (pgcc,
+or anyone worried about AGI stalls) would plausibly invert it.
+
+It is not the knob. Candidate 6 inverts the two costs and changes **nothing**:
+still folded, still 51. That is consistent with §3.3 — the fold is already
+present in the *initial* RTL emitted by `expand_expr`, before CSE runs at
+all, so no back-end cost model can undo it.
+
+This matters for the vendor hypothesis: a compiler that emits the 1998 form
+must differ in the **front end or `expr.c`**, not in i386 tuning. That is a
+much narrower and less likely thing for a vendor to have patched.
+
+(No pgcc build could be obtained — it is in no Debian release and the goof.com
+distribution site is gone. Cygnus GNUPro was commercial and no i386-linux-host
+gcc 2.7.2.x binary or source tree surfaced. The PS2 toolchain sources that are
+held locally, under `/u/aap/src/ps2rev/eegcc/`, start at `2.9-sky-990318`;
+there is no 2.7.2.x SKY or EE compiler, so the ee-gcc lineage is not the
+source of a patched host compiler either.)
+
+### 7.5 The addrconv residual is a source problem, not a compiler problem
+
+Because five independent 2.7.2.x builds agree byte-for-byte, the 51 bytes
+cannot be blamed on the compiler. Looking at where they sit
+(7 clusters, all inside `address_convert__8AddrConviiiiiRiN56`):
+
+**(2) the 2D table index, offset 0x36c** — same instruction count, opposite
+operand order:
+
+```
+        original (x term first)                 ours (y term first)
+ 36c: mov 0xc(%ebp),%edi     ; x          36c: lea 0x0(,%ebx,8),%edx   ; y*8
+ 36f: mov %edi,%edx                       373: and $0x10,%edx
+ 371: add %edi,%edx          ; x*2        376: mov 0xc(%ebp),%esi      ; x
+ 373: and $0xc,%edx                       379: mov %esi,%eax
+ 376: lea 0x0(,%ebx,8),%eax  ; y*8        37b: add %esi,%eax           ; x*2
+ 37d: and $0x10,%eax                      37d: and $0xc,%eax
+ 380: add %eax,%edx          ; y into x   380: add %edx,%eax           ; x into y
+ 382: mov 0x0(%edx),%eax                  382: mov 0x0(%eax),%eax
+```
+
+gcc 2.7 evaluates the two addends in source order and accumulates into the
+first. So the 1998 source writes the **x-derived term first** in that index
+expression; ours writes it second. Swapping the two terms in the source
+should close this cluster.
+
+**(1) the Z arm, offset 0x328** — the original keeps the value in a fresh
+register:
+
+```
+ original: mov %eax,%edi ; and $0x1,%edi ; mov 0x24(%ebp),%esi ; mov %edi,(%esi)
+ ours:                     and $0x1,%eax ; mov 0x24(%ebp),%esi ; mov %eax,(%esi)
+```
+
+The extra `mov` means the unmasked `(x>>6)^1` was still live in the original —
+i.e. that subexpression is bound to something in the source (an extra local,
+or reused) rather than consumed in place.
+
+**(3) the `%esi`/`%edi` swaps** in the remaining clusters (0x841, 0x864, 0x920,
+0x1343, 0x1398, 0x1449) are all downstream ripples of (1) and (2): the same
+instructions with the two callee-saved registers exchanged.
+
+Note this is also why the `.align` padding differs there — ours pads a
+14-byte gap (`8d b4 26 …` twice) where the original pads 12 (`8d b6 00 …`
+twice). Same GAS nop family, different gap, because the preceding code lengths
+differ. Not an assembler discrepancy.
+
+### 7.6 Verdict
+
+**Stock vendor compiler: ruled out.** Every gcc 2.7.2.x obtainable —
+Debian hamm 2.7.2.3, Red Hat 5.0 2.7.2.3-8, Red Hat 4.2's 2.7.2.1 (with Red
+Hat's patches), and vanilla FSF 2.7.2.3 — folds the vtable entry offset into
+the memory operand, and all of them produce identical code otherwise. The host
+distribution *is* now firmly identified as Red Hat 4.x (the `colgate` build
+path plus the libc5 sample binary), but Red Hat's compiler is not the one that
+built the 23 objects.
+
+**Custom patch: still the best explanation, and now a narrower one.** §7.4
+shows the difference cannot come from i386 tuning; it has to come from the
+C++ front end or `expr.c`. `tools/gcc272/patches/01-vfn-ref-keep-entry-address.patch`
+is a three-line change in exactly that place and reproduces the 1998 form
+exactly, which is at least a plausible shape for whatever the real change was.
+Whether the 1998 box ran a locally patched cc1plus, an unreleased Cygnus
+build, or something else entirely is still unresolved — but it was **not** a
+stock Red Hat, Debian or FSF compiler.
+
+**Most useful practical outcome of this round:** the addrconv residual is
+compiler-invariant, so chasing it belongs in `src/addrconv.c`, not in the
+toolchain. 7.5 says where to start.
+
+### 7.7 Addendum: the genuine Red Hat 4.2 binary does run, and it confirms all of the above
+
+The libc5 wall in 7.3 has a way through, found independently while
+`test/run_libgpu2_721.sh` was being written: under libc5 on this kernel,
+`fopen()` **for reading** fails, but writing is fine — so the preprocessed
+source has to arrive on **stdin**. Two more things are needed:
+
+* patch `PT_INTERP` in a private copy from `/lib/ld-linux.so.1` to the
+  relative `ld1` (same length, NUL-padded) and drop an `ld1` symlink beside it;
+* run it with `env -i` (a small environment) and `setarch linux32 -R`
+  (randomisation off). With the full environment or with ASLR on it still
+  dies in `xmalloc` — that was what defeated the earlier attempt.
+
+Results from the real `gcc-c++-2.7.2.1-2` binary:
+
+| test | result |
+|---|---|
+| vtable dispatch | **folded** (`movswl 8(%eax),%edx`) — same as everything else |
+| `addrconv` `-O -m486` | **51**, and the emitted assembly is **byte-identical** to the rebuilt candidate 4 |
+| `addrconv` `-O` (its own default tuning) | 1349 bytes vs the original's 1463 — size mismatch |
+
+The last row is a useful cross-check on §4.1. Red Hat 4.2's gcc is configured
+`i386-linux`, so it emits `leave` epilogues by default; `-m486` is what makes
+it agree with the originals. And that shows up in the archive itself:
+
+```
+object        compiler   leave   mov %ebp,%esp
+libgpu2.o     2.7.2.1        9        0        <- i386 tuning
+addrconv.o    2.7.2.3        0        1        <- i486 tuning
+pre1.o        2.7.2.3        0        7
+pre3.o        2.7.2.3        0       11
+dda.o         2.7.2.3        0       33
+```
+
+**`libgpu2.o`, the one 2.7.2.1 object, is i386-tuned; all 22 of the 2.7.2.3
+objects are i486-tuned.** That is exactly the signature of a Red Hat 4.x box
+(`i386-linux` gcc 2.7.2.1, `leave` by default) that later acquired a
+*different*, i486-configured 2.7.2.3 — which is also the compiler with the
+unexplained vtable behaviour. So the version split in the `.comment` strings
+is a real toolchain change mid-project, not noise.
+
+Practical consequence, and a useful one: `libgpu2.o` is **not** in the list of
+objects containing virtual dispatch (§3.1), so the one anomaly does not apply
+to it. For `src/libgpu2.c` the stock Red Hat 4.2 compiler, at plain `-O` with
+its own i386 default tuning, should be exactly right:
+
+```sh
+GCC272_ALT=rh42-2721 tools/gcc272/g++272 -O -m386 -c src/libgpu2.c -o libgpu2.o
+```
+
+(`GCC272_ALT` implies `-m486`, so pass `-m386` after it to get 2.7.2.1's own
+default back. `alt/rh42-2721` is the source rebuild; it emits byte-identical
+assembly to the shipped Red Hat binary, and unlike it needs no libc5, no
+stdin trick and no `setarch`.)
+
+Run against the current `src/libgpu2.c` that recipe gives a `.text` of 3360
+bytes with **9 `leave` epilogues — exactly matching `orig/lib/libgpu2.o`'s 9**,
+against its 3350 bytes. So the tuning and the compiler are right and the
+remaining 10 bytes are source, same conclusion as 7.5.

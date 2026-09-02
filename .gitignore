@@ -26,4 +26,6 @@ __pycache__/
 tools/gcc272/src/
 tools/gcc272/patched/
 tools/gcc272/rpms/
-tools/gcc272/alt/*/root/
+tools/gcc272/alt/*/
+!tools/gcc272/alt/README.md
+!tools/gcc272/rpms/rpm2cpio.py

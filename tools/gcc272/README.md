@@ -10,13 +10,17 @@ g++272                    wrapper: era cpp -> era cc1plus -> era as   (C++)
 gcc272                    same for C (cc1)
 fetch.sh                  re-downloads and unpacks root/ from archive.debian.org
 build-patched-cc1plus.sh  rebuilds patched/ (optional 1998-codegen cc1plus)
+fetch-alt.sh              re-creates alt/ (other vendors' gcc 2.7.2.x)
 patches/                  the one-hunk source patch that build script applies
 shim/as, shim/ld          assembler/linker shims the era gcc driver picks up
 root/                     unpacked 1998 Debian "hamm" tree (the compiler)
 patched/                  vanilla FSF gcc-2.7.2.3 cc1plus + patches/ (optional)
+alt/                      Red Hat 4.2 / 5.0 gcc 2.7.2.x, for comparison
+                          (see alt/README.md; selected with GCC272_ALT)
 debs/                     the downloaded .deb files
+rpms/                     the downloaded Red Hat .rpm files + rpm2cpio.py
 src/                      gcc-2.7.2.3.tar.gz and the Debian source diff
-SHA256SUMS                checksums of debs/ and src/
+SHA256SUMS                checksums of debs/, rpms/ and src/
 ```
 
 Nothing was installed system-wide; nothing needs root; there is no chroot.
@@ -28,6 +32,7 @@ The 1998 i386 ELF binaries run directly against the host's 32-bit glibc
 ```sh
 sh tools/gcc272/fetch.sh                    # root/ ; ~30 s
 sh tools/gcc272/build-patched-cc1plus.sh    # patched/ ; ~2 min, optional
+sh tools/gcc272/fetch-alt.sh                # alt/ ; ~3 min, optional
 ```
 
 `fetch.sh` pulls these from `http://archive.debian.org/debian-archive/debian`,
@@ -71,6 +76,7 @@ Works from any cwd, via absolute path, relative path or `PATH`.
 | variable | effect |
 |---|---|
 | `GCC272_1998=1` | use `patched/…/cc1plus` (+ implies `-m486`). Reproduces the 1998 libgpu2 virtual-call code. Only at `-O`; `-O2` undoes it. |
+| `GCC272_ALT=<name>` | use `alt/<name>/…/cc1plus` instead (+ implies `-m486`). `rh50` = Red Hat 5.0 gcc 2.7.2.3-8; `rh42-2721` = Red Hat 4.2's gcc 2.7.2.1. Kept for comparison only — neither matches the 1998 codegen. See `alt/README.md`. |
 | `GCC272_MODERN_AS=1` | assemble with the host `as --32 -mx86-used-note=no` instead of GAS 2.9.1 |
 | `GCC272_MODERN_LD=1` | link with the host `ld -m elf_i386` |
 | `GCC272_HOST_INTERP=1` | record `/lib/ld-linux.so.2` and drop the rpath (relocatable binary, host glibc) |

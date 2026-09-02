@@ -14,6 +14,9 @@
 #                        byte-for-byte; modern GAS does not.
 #   GCC272_HOSTINC=1     also search the host /usr/include (off by default)
 #   GCC272_VERBOSE=1     echo the driver command line before running it
+#   GCC272_ALT=<name>    use ./alt/<name>/exec/.../cc1plus instead of the
+#                        default hamm one (implies -m486).  See alt/README.md;
+#                        current names: rh50, rh42-2721.
 #   GCC272_1998=1        use ./patched/.../cc1plus -- a vanilla FSF gcc-2.7.2.3
 #                        cc1plus rebuilt here with patches/01-*.patch, which
 #                        restores the virtual-call address form actually used
@@ -80,7 +83,15 @@ set -- -nostdinc -nostdinc++ \
 set -- -B"$here/shim/" "$@"
 
 # --- where the era driver finds cc1plus / cpp ------------------------------
-if [ -n "$GCC272_1998" ] && [ -x "$here/patched/i486-linux/2.7.2.3/cc1plus" ]; then
+if [ -n "$GCC272_ALT" ]; then
+    [ -x "$here/alt/$GCC272_ALT/exec/i486-linux/2.7.2.3/cc1plus" ] || {
+        echo "g++272: no such alternate compiler: alt/$GCC272_ALT" >&2
+        for d in "$here"/alt/*/exec/i486-linux/2.7.2.3/cc1plus; do
+            [ -x "$d" ] && echo "  available: $(basename "${d%/exec/*}")" >&2
+        done; exit 1; }
+    GCC_EXEC_PREFIX=$here/alt/$GCC272_ALT/exec/
+    set -- -m486 "$@"          # alternates are not i486-configured
+elif [ -n "$GCC272_1998" ] && [ -x "$here/patched/i486-linux/2.7.2.3/cc1plus" ]; then
     GCC_EXEC_PREFIX=$here/patched/
     set -- -m486 "$@"          # the patched cc1plus is configured i386-pc-linux-gnu
 else
