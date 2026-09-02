@@ -114,6 +114,10 @@ def compare():
             print(f'{e}: no TOOL readback yet')
             continue
         img = np.fromfile(hwfn, dtype='<u4')
+        if img.size != 1 << 20:
+            print(f'{e}: partial readback ({img.size} words) -- '
+                  'suite still writing it, skipping')
+            continue
         raw = np.empty(1 << 20, dtype='<u4')
         raw[lut] = img
         rawfn = os.path.join(ed, 'hwvram_raw.bin')
