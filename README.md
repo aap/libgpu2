@@ -76,6 +76,8 @@ Status (doc/MATCHING.md has the per-object scoreboard):
 - **addrconv** done: 100% byte-identical (.text/.data/.rodata/relocs), differential + oracle clean.
 - **libgpu2** done: 7/9 functions byte-exact, rest allocation-shape only; differential + oracle clean.
 - **pre1/pre3** done: 8/16 functions byte-identical, rest instruction-identical or a few insns short (suspected compiler-mod artifacts); 711k-snapshot differential + oracle clean, including a full Ridge Racer V dump.
+- **slong/div/txm_div/texfunc/param** done: slong whole-file identical, 31.6M differential calls clean across the cluster; Reciproc's 70 hand-tuned table corrections recovered.
+- 9/23 objects replaced; 9-object hybrid oracle bit-identical on all dumps.
 
 Long-term goal beyond a buildable library: a native amd64 build and an
 interactive GS debugger on top of it — live framebuffer view, register

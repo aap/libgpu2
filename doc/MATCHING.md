@@ -12,6 +12,18 @@ expected even for perfect source.
 | libgpu2 | 7/9 functions exact (GS_OpenSim off only by a callee-size displacement); GS_SaveImage + initPCRTC differ in DImode register/spill allocation only (doc/notes/libgpu2.md) | identical (+.rodata/.bss/.comment/.note) | identical (195 records) | differential 39710 checks 0 failures; oracle replay bit-identical (REPLACE="addrconv libgpu2") |
 | pre1 | 2825/2889 bytes; 3/6 fn byte-identical, 2 more identical bar displacement/jump-table addresses; Put 25 insns short | n/a | identical | joint pre1+pre3 differential: 2M register writes, 711661 PCalc-boundary state snapshots, 0 mismatches; oracle bit-identical incl. a full RRV game dump (301k vertex kicks) |
 | pre3 | 2528/2688 bytes; 5/10 fn byte-identical, 3 more instruction-identical; Triangle 39 insns short | n/a (+.rodata/_vt.4Pre3 identical) | identical | same joint differential + oracle |
+| slong | **whole .o cmp-identical** (1227/1227) | n/a | identical | 6.4M calls 0 mismatch |
+| div | 2879/2889; reciproc 100%, 10 B in ctor (stack-temp reuse) | .rodata identical | identical | tables 512/512 identical; 13.0M calls 0 mismatch |
+| txm_div | 747/951; 4/5 fn 100%, mktable 204 B (x87 eval order) | .data/.rodata identical | same set | generated tables 256/256 bit-identical; 4.3M calls 0 mismatch |
+| texfunc | instruction shape reproduced, regalloc differs (762 vs 826) | .rodata identical | same set | 3.7M calls 0 mismatch |
+| param | 4029/5571; **12/14 fn exact** | n/a | same set | 4.2M calls 0 mismatch (caught ShiftARGBSlope's unconditional extra >>2) |
+
+Nine of 23 objects replaced; the 9-object hybrid replays r614, o519 and
+the RRV game dump bit-identically (probe 0 failures).  New reusable
+lesson from txm_div: the era libc5 <math.h> declared math functions
+__attribute__((__const__)) and gcc 2.7 pops a const call's args
+immediately — declare rint/fabs (and abs!) locally with era attributes,
+never include modern headers.
 
 pre1/pre3 residuals look like the SAME compiler mod as the vfn-ref
 anomaly (a "force address through a value" change in expand): the
