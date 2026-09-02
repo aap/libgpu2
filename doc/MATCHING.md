@@ -10,6 +10,17 @@ expected even for perfect source.
 |---|---|---|---|---|
 | addrconv | **100% byte-identical** (+.rodata) | identical | identical | differential 80.5M calls 0 mismatch; oracle replay bit-identical; probe suite 0 failures |
 | libgpu2 | 7/9 functions exact (GS_OpenSim off only by a callee-size displacement); GS_SaveImage + initPCRTC differ in DImode register/spill allocation only (doc/notes/libgpu2.md) | identical (+.rodata/.bss/.comment/.note) | identical (195 records) | differential 39710 checks 0 failures; oracle replay bit-identical (REPLACE="addrconv libgpu2") |
+| pre1 | 2825/2889 bytes; 3/6 fn byte-identical, 2 more identical bar displacement/jump-table addresses; Put 25 insns short | n/a | identical | joint pre1+pre3 differential: 2M register writes, 711661 PCalc-boundary state snapshots, 0 mismatches; oracle bit-identical incl. a full RRV game dump (301k vertex kicks) |
+| pre3 | 2528/2688 bytes; 5/10 fn byte-identical, 3 more instruction-identical; Triangle 39 insns short | n/a (+.rodata/_vt.4Pre3 identical) | identical | same joint differential + oracle |
+
+pre1/pre3 residuals look like the SAME compiler mod as the vfn-ref
+anomaly (a "force address through a value" change in expand): the
+originals show `lea 0(,idx,4)` + `disp(tmp,base,1)` forms (7 sites in
+pre3.o, 0 reproducible) and matching extra register pressure.  Also
+learned: era `<stdlib.h>` abs() must NOT be used (attribute changes arg
+popping — declare it locally), and the originals' loops are
+systematically unrotated (`for(;;)` + block-scoped decl + `if break`
+reproduces it; expect in pcalc/memif/txm).
 
 libgpu2.o build settings differ from the rest of the archive and are
 forced by bytes: RH 4.2 gcc **2.7.2.1** (`GCC272_ALT=rh42-2721`),

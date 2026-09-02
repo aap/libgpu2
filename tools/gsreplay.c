@@ -159,6 +159,10 @@ gate_init(void)
 		ok_reg[bad[i]] = 0;
 	for (a = 0x60; a <= 0x7e; a++)
 		ok_reg[a] = 0;         /* SIGNAL/FINISH/LABEL + reserved */
+	/* 0x11-0x13: retail-undefined (no-ops on hardware), but in the 1998
+	 * map they are RGBAQ/ST/UV *with a drawing kick* (doc/notes/pre1.md).
+	 * Games do write them (RRV pokes 0x11); dropping = retail behavior. */
+	ok_reg[0x11] = ok_reg[0x12] = ok_reg[0x13] = 2;
 }
 
 static long nskipped;
@@ -170,7 +174,7 @@ static long nskipped;
  * re-evaluation).  Clear the bit always; MIPTBP then stays whatever
  * was written explicitly, which can only miscolor mipmapped texturing,
  * not kill the replay. */
-static long nmtba;
+static long nmtba, ndialect;
 
 /* ---------------- experiment knobs ----------------
  * -Z A:B:HEXZ   force the Z of every vertex kick numbered A..B
@@ -214,6 +218,10 @@ put(int addr, u64 data)
 {
 	if (addr < 0 || addr > 0x7f || !ok_reg[addr]) {
 		nskipped++;
+		return;
+	}
+	if (ok_reg[addr] == 2) {
+		ndialect++;
 		return;
 	}
 	if ((addr == 0x14 || addr == 0x15) && (data >> 9 & 1)) {
@@ -511,8 +519,9 @@ main(int argc, char **argv)
 	check(S_END, 0, "end");
 	if (!quiet)
 		printf("done: xfer=%ld reg=%ld prim=%ld draw=%ld vsync=%ld "
-		    "skipped-regs=%ld mtba-cleared=%ld\n", c_xfer, c_reg,
-		    c_prim, c_draw, c_vsync, nskipped, nmtba);
+		    "skipped-regs=%ld mtba-cleared=%ld dialect-dropped=%ld\n",
+		    c_xfer, c_reg, c_prim, c_draw, c_vsync, nskipped, nmtba,
+		    ndialect);
 	GS_CloseSim();
 	return 0;
 }
