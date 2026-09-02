@@ -25,3 +25,5 @@ tools/gcc272/root/
 __pycache__/
 tools/gcc272/src/
 tools/gcc272/patched/
+tools/gcc272/rpms/
+tools/gcc272/alt/*/root/
