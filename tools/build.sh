@@ -17,16 +17,16 @@
 #     REPLACE="addrconv slong" ./build.sh
 # Not-yet-decompiled objects keep coming from the 1998 archive.
 #
-# OWN BUILDS:  OWN=1 ./build.sh  compiles every decompiled module and links
-# against an archive containing ONLY our objects - no 1998 members at all.
-# Possible since the 20-object milestone: the link pulls nothing beyond
-# $OWNLIST (gpu2reg/drawprim/gpu2vec are Sony's never-linked jtcl console
-# and test-vector tap layer; they join the list when decompiled).
+# OWN BUILDS:  OWN=1 ./build.sh  compiles every module and links against
+# an archive containing ONLY our objects - no 1998 members at all.
+# $OWNLIST is the complete 23-member archive; gpu2reg/drawprim/gpu2vec
+# (Sony's never-linked jtcl console and test-vector tap layer) are in the
+# archive but never pulled by the gsreplay link.
 set -e
 cd "$(dirname "$0")"
 
 OWNLIST="addrconv libgpu2 pre1 pre3 slong div txm_div texfunc param pcalc \
-dbg clut bitblt xif memory memif dda pcrtc txm gpu2 gpu2reg drawprim"
+dbg clut bitblt xif memory memif dda pcrtc txm gpu2 gpu2reg drawprim gpu2vec"
 [ -n "$OWN" ] && REPLACE=$OWNLIST
 
 ORIG=../orig
@@ -53,7 +53,7 @@ if [ -n "$REPLACE" ]; then
             # (doc/notes/xif.md).
             case $m in
             libgpu2) era="env GCC272_ALT=rh42-2721 gcc272/g++272 -O2 -m386";;
-            xif|pcrtc|gpu2) era="env GCC272_1998=1 gcc272/g++272 -O -idirafter /usr/include";;
+            xif|pcrtc|gpu2|gpu2vec) era="env GCC272_1998=1 gcc272/g++272 -O -idirafter /usr/include";;
             gpu2reg|drawprim) era="env GCC272_1998=1 gcc272/g++272 -O";;
             *)       era="gcc272/g++272 -O";;
             esac

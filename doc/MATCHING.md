@@ -31,12 +31,13 @@ expected even for perfect source.
 
 | gpu2reg | 5 fn byte-identical (`OpenImage`, the ctor, `CACHEINVLD`, `EXTWRITE`, `Quit`); 21172/21732 B, mnemonic stream 84.9% aligned-equal, aligned bytes 42.3%; every one of the 88 functions shape-exact — the residual is one uniform pattern per virtual-Put call site, the unreproduced arg-presaturation mod (the candidate patch 02 below raises this to 14 fn byte-identical, 45.6%/88.2%, and pins the mod's semantics) | **identical** (all 83 MyCBFuncs rows + pGPU2Reg; only the `.text`-reloc addends shift with the fn offsets — 120 bytes, all inside the 199 identical `.rel.data` records) | set + order identical; **`.rodata` byte-identical** (0x410: every command/help/error string, `_vt.7GPU2Reg` with its three `__pure_virtual` relocs); `.note`/`.comment` identical; **symbol table identical** (names, types, order) | differential 20000 rounds × 82 commands + ctor/table/fork'd quit, 8.17M records 0 mismatches (six 1-token canaries caught; found two more original bugs live: SaveRGB24Pixel's quadword heap overrun, SaveRGBA32Pixel's odd-w*h uninitialized bytes); 22-object hybrid (non-perturbation — these members are never pulled): probe 0 failures, r614/o519/RRV end-state md5s exactly the pure-Sony baselines, zero gpu2reg/drawprim symbols in the linked gsreplay |
 | drawprim | `DrawLine` + `DrawTriangle` byte-identical; `Vertex1`/`Vertex2` instruction-identical, off only by the one `call` displacement byte that tracks PutVertex(-32)/Vertex0(+16)'s shifted layout (the GS_OpenSim knock-on class); `PutVertex`/`Vertex0` shape-exact under the same call-site residual; 1255/1271 B, mnemonic stream 81.6% | n/a (`.bss` 4 = `already`) | identical; `.rodata` identical bar the two `89 f6`-vs-`00 00` pad bytes before the 16.0f constant (the known 1998-GAS fill class); `.note`/`.comment` identical; symbol table identical bar `already.826`→`already.4` (lesson below) | exercised inside gpu2reg's differential (all Vertex paths, every flag combination); same 22-object oracle |
+| gpu2vec | **22/47 fn byte-identical** (15 of the 28 own functions, 7 of the 19 inherited header inlines), 25/47 instruction-identical (18/28 own); 28090/35578 B.  Every own function is byte-identical, instruction-identical or shape-exact: the residual is (a) the six `*Vec` writers, -7559 B — one uniform pattern per *inlined column writer*, the no-constant-propagation-into-inlines face of the presaturation mod (lesson below), (b) the ctor's +112 = the two inlined PCRTCxif arms' documented +48/+51 plus the Reciproc/PPOut arg-pop quirk, exactly gpu2.o's +96 pattern, and (c) 12 weak header inlines byte-identical (reloc-masked, both directions) to what the same headers emit into gpu2.o/pcrtc.o — inherited, no residual class of gpu2vec's own | n/a (`.data` empty, `.bss` 0xc = `r_count`/`r_size`/`r_buf`); `.note`/`.comment` identical | **set + order identical (1321 records)**; `.rodata` identical bar GAS's two `8d 76` pad bytes (every format string, every XLine width list, all 16 vtables); **symbol table identical** (names, bindings, types and order) | differential 17.28M checks 0 failures: ctor graph for disp 0/1/2 + the exit and assert arms, `Put` sweep -0x80..0x10f on both display arms, `Get`/`GetCRT`/`ResizeWindow`, `SetVector` slot routing for sel -1..7, and **13.9 MB of vector-file bytes compared exactly** (all five taps, 4096 randomized PCalc/DDA/PixelStamp each plus every conditional arm; three 1-token canaries all caught); 23-object hybrid (non-perturbation: gpu2vec is never pulled): probe 0 failures, r614/o519/RRV end-state md5s exactly the pure-Sony baselines, zero gpu2vec symbols in the linked gsreplay |
 
-Twenty-two of 23 objects replaced (addrconv libgpu2 pre1 pre3 slong div
-txm_div texfunc param pcalc dbg clut bitblt xif memory memif dda
-pcrtc txm gpu2 — every member the gsreplay link pulls — plus the
-never-linked gpu2reg and drawprim, Sony's jtcl register console); the
-hybrid archive
+**Twenty-three of 23 objects replaced** — the whole archive (addrconv
+libgpu2 pre1 pre3 slong div txm_div texfunc param pcalc dbg clut bitblt
+xif memory memif dda pcrtc txm gpu2, every member the gsreplay link
+pulls, plus the never-linked gpu2reg/drawprim jtcl console and the
+gpu2vec test-vector tap layer); the hybrid archive
 replays r614, o519 and the RRV game dumps bit-identically (probe 0
 failures).  New reusable lesson from txm_div: the era libc5 <math.h>
 declared math functions __attribute__((__const__)) and gcc 2.7 pops a
@@ -550,3 +551,42 @@ attributes to the mod — re-run those matches with it before adopting
 as tools/gcc272 patches/02.  Built and measured only in the gpu2reg
 agent's scratch farm; NOT installed in tools/ (shared with running
 farms).
+
+New lessons from gpu2vec (details in doc/notes/gpu2vec.md):
+
+* **The 1998 compiler does not constant-propagate into an inlined
+  function body.**  Every argument of an inline call — constant or not —
+  arrives in a fresh pseudo; stock 2.7's `expand_inline_function`
+  const-equivalence map is simply absent.  Tells: `PutX(fp,1)` keeps its
+  loop entry test; `XField(fp,32)` gives `mov $0x23,%ebx; sar $0x2`
+  (the adjacent `+3` folded by combine, the `>>2` not); `(width+3)/4`
+  expands the full runtime signed division; a constant mask arrives in
+  a register.  Six source shapes tried under all four cc1plus builds —
+  all fold completely; a compiler difference, not a source shape.  Cost
+  ~30 B per inlined column writer, -7559 B over the six `*Vec`
+  functions — the whole of gpu2vec.o's own residual.
+* **…which pins the presaturation mod one level above patch 02.**
+  `expand_call` hands an integrable call to `expand_inline_function`
+  *before* the precompute loop patch 02 edits, so patch 02 cannot
+  produce this.  A tree-level wrapper on every actual argument (patch
+  01's `save_expr(build1(NOP_EXPR, …))` trick, applied in
+  `convert_arguments`/`build_function_call`) would explain both the
+  real-call presaturation and the inline-call const loss in ONE hunk —
+  try that before adopting patch 02.  Cheap measurement site:
+  `RegisterVec__7MyMemIF…` (1009 B, 5 value columns).
+* **`w*4*h` a third time, and it is behaviourally invisible.**
+  `dumpCRT`'s realloc size must be `width*4*height`; the swap is the
+  same size and instruction count, a pure register rename — only the
+  byte compare catches it.
+* **A tap-layer object confirms the vtable-linkage rule from the
+  awkward side.**  `MyDDA`/`MyTXM`/`MyMemIF` define an override out of
+  line → key-method classes: `_vt.*` and all inline members come out
+  global.  `MyMemory`'s only virtual is its inline dtor → vtable local,
+  dtor weak, and its never-called inline `SetVector` not emitted at
+  all.  That split is what makes the symbol table identical; it also
+  fixes MyMemory's layout (base has no vptr, so the derived vptr goes
+  after the tap word: `fp` 0x4001c8, vptr 0x4001cc, size 0x4001d0).
+* **`GPU2VEC`'s ctor never initialises `vec` or `fp`** — an original
+  bug, reproduced: until the first `SetVector`, `Put`'s `if (vec == 6)`
+  reads uninitialised heap.  A reconstruction that "helpfully" zeroes
+  them adds two stores and stops matching.
