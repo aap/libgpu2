@@ -47,7 +47,8 @@ Pieces (all in `tools/`, shared history with
     probe.c      behaviour test suite (0 failures against the model)
     swz.c fmt.c  derive/verify the model's in-page swizzle vs retail
     regprobe.c   measure which registers are fatal
-    build.sh     clang -m32 + hand ld link against orig/lib
+    build.sh     clang -m32 + hand ld link; REPLACE="..." hybrid archive,
+                 OWN=1 links against our objects only (no 1998 members)
 
 ## Decompilation workflow
 
@@ -73,11 +74,29 @@ clut, dbg, drawprim) → pre1/pre3 → memory/bitblt/memif → dda → pcalc, tx
 
 Status (doc/MATCHING.md has the per-object scoreboard):
 
-- **addrconv** done: 100% byte-identical (.text/.data/.rodata/relocs), differential + oracle clean.
-- **libgpu2** done: 7/9 functions byte-exact, rest allocation-shape only; differential + oracle clean.
-- **pre1/pre3** done: 8/16 functions byte-identical, rest instruction-identical or a few insns short (suspected compiler-mod artifacts); 711k-snapshot differential + oracle clean, including a full Ridge Racer V dump.
-- **slong/div/txm_div/texfunc/param** done: slong whole-file identical, 31.6M differential calls clean across the cluster; Reciproc's 70 hand-tuned table corrections recovered.
-- 9/23 objects replaced; 9-object hybrid oracle bit-identical on all dumps.
+- **22/23 objects replaced**, every one through all verification tiers.
+  Every member the gsreplay link pulls is reconstructed source:
+  `OWN=1 tools/build.sh` links the whole harness against an archive
+  containing **zero 1998 objects** — probe 0 failures, the dump corpus
+  (OSDSYS r614/o519 + Ridge Racer V) replays bit-identical to pure-Sony.
+- Whole-object byte-identical: addrconv, slong, dbg.  libgpu2 8/9
+  functions exact; most objects have identical symbol tables, relocation
+  sets and .rodata, with residuals confined to two identified mods in
+  Sony's private gcc 2.7.2.3: the vfn-codegen mod (reproduced —
+  `GCC272_1998=1` patched cc1plus) and the arg-presaturation mod
+  (half-cracked; candidate "patch 02" in doc/MATCHING.md makes
+  gpu2reg's single-term handlers byte-identical, adoption pending).
+- Remaining: **gpu2vec** (in progress) — not vector math but Sony's own
+  test-vector tap layer (GPU2VEC wiring MyDDA/MyTXM/MyMemIF/MyMemory
+  subclasses that dump per-stage vectors), the seed for the planned
+  debugger.  Its sibling **gpu2reg** (done) is Sony's jtcl register
+  console: 82 per-register script commands, image uploaders, and the
+  only path to the real PCRTC merge (pseudo-register 0x101).
+- Hardware ground truth (doc/HARDWARE.md): 85-frame suite on a
+  DTL-T10000 — 51/85 frames bit-identical across all 4 MB of VRAM, the
+  rest LSB-only and mostly inside the silicon's own run-to-run
+  nondeterminism envelope; the stable model-vs-silicon residue on r614
+  is 60 words (0.006%).
 
 Long-term goal beyond a buildable library: a native amd64 build and an
 interactive GS debugger on top of it — live framebuffer view, register
@@ -89,7 +108,7 @@ exactly the hook point for this).
 - Struct layouts come from evidence only: `__builtin_new` sizes, ctor
   stores, member-access offsets (doc/STRUCTS.md cites instructions).
   The DeepSeek-era generated material in othersrc (`FINDINGS.md`, `re/`)
-  is leads, not truth — four of its claims are already disproven
+  is leads, not truth — five of its claims are already disproven
   (doc/STRUCTS.md §"prior-claim corrections").
 - Behaviour claims get measured against the model before being written
   down; keep observation and inference marked apart.
