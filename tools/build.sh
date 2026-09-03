@@ -26,7 +26,7 @@ set -e
 cd "$(dirname "$0")"
 
 OWNLIST="addrconv libgpu2 pre1 pre3 slong div txm_div texfunc param pcalc \
-dbg clut bitblt xif memory memif dda pcrtc txm gpu2"
+dbg clut bitblt xif memory memif dda pcrtc txm gpu2 gpu2reg drawprim"
 [ -n "$OWN" ] && REPLACE=$OWNLIST
 
 ORIG=../orig
@@ -54,6 +54,7 @@ if [ -n "$REPLACE" ]; then
             case $m in
             libgpu2) era="env GCC272_ALT=rh42-2721 gcc272/g++272 -O2 -m386";;
             xif|pcrtc|gpu2) era="env GCC272_1998=1 gcc272/g++272 -O -idirafter /usr/include";;
+            gpu2reg|drawprim) era="env GCC272_1998=1 gcc272/g++272 -O";;
             *)       era="gcc272/g++272 -O";;
             esac
             ${CC272:-$era} -I../include -c "../src/$m.c" -o "obj/$m.o"

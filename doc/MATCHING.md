@@ -29,9 +29,14 @@ expected even for perfect source.
 | gpu2 | **12/25 fn byte-identical** (all six own functions but the ctor — dumpCRT, GetCRT, Get, Put, ResizeWindow — plus 7 weak inlines); `__4GPU2Pciii` +96 = the two inlined PCRTCxif-ctor arms' documented +48/+51 plus ~12 B of the Reciproc/PPOut pop quirk (lessons below); the 12 differing weak inlines are byte-identical (reloc-masked, both directions) to what the same headers emit into pcrtc.o — pcrtc/xif's accepted residuals, inherited, no residual class of gpu2's own | n/a (+`.data`/`.bss`/`.note`/`.comment` identical) | set + order identical (133 `.rel.text` + 33 `.rel.rodata`); `.rodata` identical bar GAS's two `8d 76` pad bytes; **symbol table identical** (names, bindings, types, order; 13 sizes track the fn sizes) | differential 3.41M checks 0 failures (all four ctor disp arms + the assert arm, Put sweep vs real PCRTCdmy and fake PCRTCxif vtables, MemRead/blend sweeps, two DrawPixel→dumpCRT→GetCRT frame round-trips; routing and r_size canaries caught); 20-object hybrid: probe 0 failures, r614/o519/RRV end-state md5s equal pure-Sony; the gsreplay link pulls only decompiled members (`--print-map` + nm: no gpu2reg/drawprim/gpu2vec symbols) |
 | txm | **18/41 fn byte-identical**, 24570/25485 B (96.5%); every function shape-exact; `Texturing` (448 B), `ExtCov` (426), `AA1`, `SetCLAMP`, `SetTEX2`, `SetTEXCLUT`, `ClampQ` and `LMNFilter` same size with the same instruction stream (register allocation only), `NFilter` same instruction count; the rest is `Put` -528 and `GetOneTexel` -160, i.e. the compiler-mod address forms and the register pressure they cause | identical (the 0x100 `TXM::valid8`), and `.ctors`/`.note`/`.comment` with it; `.rodata` identical but for one `89 f6`-vs-`00 00` pad pair | **set + order identical (205)**, **symbol table identical** | differential 130.1M calls / 129.8M comparisons / 365650 fatal arms, 0 mismatches (own 96 MB mapped VRAM and fake MemIF each side; the whole 0x72c object *and* the clut[] overrun slack behind it compared after every call, plus every PixelStamp field TXM writes; six 1-token mutations all caught); 18-object hybrid: probe 0 failures, r614, o519 and four RRV dumps (1.4-18 MB) bit-identical to a pure-Sony build |
 
-Twenty of 23 objects replaced (addrconv libgpu2 pre1 pre3 slong div
+| gpu2reg | 5 fn byte-identical (`OpenImage`, the ctor, `CACHEINVLD`, `EXTWRITE`, `Quit`); 21172/21732 B, mnemonic stream 84.9% aligned-equal, aligned bytes 42.3%; every one of the 88 functions shape-exact — the residual is one uniform pattern per virtual-Put call site, the unreproduced arg-presaturation mod (the candidate patch 02 below raises this to 14 fn byte-identical, 45.6%/88.2%, and pins the mod's semantics) | **identical** (all 83 MyCBFuncs rows + pGPU2Reg; only the `.text`-reloc addends shift with the fn offsets — 120 bytes, all inside the 199 identical `.rel.data` records) | set + order identical; **`.rodata` byte-identical** (0x410: every command/help/error string, `_vt.7GPU2Reg` with its three `__pure_virtual` relocs); `.note`/`.comment` identical; **symbol table identical** (names, types, order) | differential 20000 rounds × 82 commands + ctor/table/fork'd quit, 8.17M records 0 mismatches (six 1-token canaries caught; found two more original bugs live: SaveRGB24Pixel's quadword heap overrun, SaveRGBA32Pixel's odd-w*h uninitialized bytes); 22-object hybrid (non-perturbation — these members are never pulled): probe 0 failures, r614/o519/RRV end-state md5s exactly the pure-Sony baselines, zero gpu2reg/drawprim symbols in the linked gsreplay |
+| drawprim | `DrawLine` + `DrawTriangle` byte-identical; `Vertex1`/`Vertex2` instruction-identical, off only by the one `call` displacement byte that tracks PutVertex(-32)/Vertex0(+16)'s shifted layout (the GS_OpenSim knock-on class); `PutVertex`/`Vertex0` shape-exact under the same call-site residual; 1255/1271 B, mnemonic stream 81.6% | n/a (`.bss` 4 = `already`) | identical; `.rodata` identical bar the two `89 f6`-vs-`00 00` pad bytes before the 16.0f constant (the known 1998-GAS fill class); `.note`/`.comment` identical; symbol table identical bar `already.826`→`already.4` (lesson below) | exercised inside gpu2reg's differential (all Vertex paths, every flag combination); same 22-object oracle |
+
+Twenty-two of 23 objects replaced (addrconv libgpu2 pre1 pre3 slong div
 txm_div texfunc param pcalc dbg clut bitblt xif memory memif dda
-pcrtc txm gpu2 — every member the gsreplay link pulls); the hybrid archive
+pcrtc txm gpu2 — every member the gsreplay link pulls — plus the
+never-linked gpu2reg and drawprim, Sony's jtcl register console); the
+hybrid archive
 replays r614, o519 and the RRV game dumps bit-identically (probe 0
 failures).  New reusable lesson from txm_div: the era libc5 <math.h>
 declared math functions __attribute__((__const__)) and gcc 2.7 pops a
@@ -442,3 +447,106 @@ New lessons from gpu2 (details in doc/notes/gpu2.md):
   bytes.  MemIF's ctor had to be a header inline in 1998 (gpu2.o
   inlines it); we repeat the one-line body in gpu2.c as
   `inline MemIF::MemIF` rather than disturb memif.h/memif.c.
+
+New lessons from gpu2reg/drawprim (details in doc/notes/gpu2reg.md):
+
+* **The presaturation mod's semantics are now pinned, and half of it is
+  reproduced.**  Stock 2.7.2.3 `expand_call` evaluates the function
+  address *before* the stack arguments, so every reconstruction of a
+  virtual call came out [funexp][args][pushes]; the 1998 objects are
+  [args][funexp][pushes] with each non-constant argument copied into a
+  fresh pseudo first.  Stock *already contains* the needed loop — the
+  "If this function call is cse'able, precompute all the parameters"
+  pass at calls.c:1330, which runs before the funexp block — Sony's
+  compiler just fires it (nearly) always.  A rebuilt cc1plus with the
+  two-hunk patch below turns every single-term handler
+  (SCANMSK/DTHE/COLCLAMP/PABE/FBA_1/FBA_2/TRXDIR/PRMODECONT/PCRTC)
+  byte-identical and leaves OpenImage/ctor/Quit identical, raising
+  gpu2reg.o from 42.3% to 45.6% aligned bytes (88.2% mnemonic stream).
+  Two boundary facts are pinned by bytes: the **leftmost argument is
+  never precomputed** (args[] is built reversed on i386, so the
+  exemption is `i == num_actuals-1`; with it, sprintf's
+  `tcl_ip->result` and the virtual `this` stay at push time exactly
+  like 1998), and **constants are never copied** (`push $imm`
+  survives).
+* **What the patch still misses** (the remaining residual, unchanged in
+  kind from pre1/pcalc/memory): in the 1998 objects the *first* DImode
+  term of a multi-term handler is spilled to the first stack slot and
+  every SImode load is register-tied to its DImode extension, where our
+  builds keep that first term live in (%edx,%ecx) and untie the rest.
+  One more forced copy per *binop operand* would explain it — "force
+  address through value" applied at expand time — but implementing that
+  naively regressed other shapes, so it stays the documented residual:
+  same mnemonic stream, registers/slots renamed, ±48 bytes per fn.
+* **`(unsigned short)` casts do not reproduce the 1998 word loads;
+  `& 0xffff` does.**  The objects show `movzwl mem` followed by a
+  *dead* `sar $0x1f` — that is `(long long)(x & 0xffff)` (combine folds
+  the mask into the load, the signed extension stays); the cast spelling
+  zero-extends and loses the sar.  Same for `& 0xff` vs
+  `(unsigned char)`.
+* **Multi-term register data was built in named long long locals, one
+  per field, with the OR chain in the Put call.**  Pinned by the slot
+  map: every term is computed then stored, the ORs read the slots at
+  the end, and the *second* term's slot is allocated last.  Evaluation
+  order = declaration order = OR order, so the source order of every
+  handler is byte-visible (TEXA is ta0|ta1|aem, TEX2 starts with
+  PSM<<20, FRAME stages FBMSK through an int local first, XYZ2/XYZ3
+  stage Z).
+* **g++ 2.7's local-static suffix counts function bodies, headers
+  included.**  `already.NNN`: base 2, +2 per function body compiled
+  before it, *including header inlines expanded at parse* (measured
+  with synthetic TUs).  drawprim.o's `already.826` records ~412 inline
+  bodies in Sony's lost grfw/jtcl include graph; ours has one (FtoI)
+  and honestly emits `already.4`.  A byte-exact symbol table would need
+  411 dummy header inlines — declined, documented.
+* **A float pun by address pins one stack slot per inline call.**
+  `static inline int FtoI(float f) { return *(int *)&f; }` — the
+  address-taken parameter gets a stack home, consecutive calls in one
+  statement reuse the same slot, and a float *local* passed to the
+  second call arrives via flds/fstps while a direct memory argument is
+  copied with integer moves.  ST/RGBAQ/PutVertex reproduce the original
+  byte patterns with this one helper.
+* **DIMX vs everything else: rotation control by declaration placement,
+  both directions.**  DIMX's staging loops are UNROTATED — the
+  block-scope decl blocks rotation (memory.md lesson).  The pixel loops
+  of RGB24Pixel/PutRGBA*/PutIDX*/Save* are ROTATED even though their
+  bodies use pix/pv/sh/v temps — those were declared at *function*
+  scope in 1998; except PutRGBA32/PutRGBA16 whose pix/pv are
+  block-scoped after all (bytes say so; the originals are not
+  consistent), and whose `count = 0` is duplicated into both format
+  arms.
+* **The packing helpers compute their shift once**: `int sh = count % 8
+  * 8; d = (d & ~((long long)0xff << sh)) | pv << sh;` — the byte slot
+  reloaded before the second variable DImode shift is the giveaway
+  (writing the modulo expression twice recomputes the whole signed-%
+  dance and misses by 30+ bytes).
+
+## The candidate cc1plus patch 02 (main-line decision pending)
+
+Applied on top of patches/01, against gcc-2.7.2.3 calls.c, in
+expand_call's precompute loop ("If this function call is cse'able,
+precompute all the parameters", ~line 1330):
+
+    for (i = 0; i < num_actuals; i++)
+      if (is_const
+    +     || (i < num_actuals - 1 && ! TREE_CONSTANT (args[i].tree_value))
+          || ((args_size.var != 0 || args_size.constant != 0)
+              && calls_function (args[i].tree_value, 1))
+          || (must_preallocate && (args_size.var != 0 || args_size.constant != 0)
+              && calls_function (args[i].tree_value, 0)))
+        {
+          ...
+          if (TYPE_MODE (TREE_TYPE (args[i].tree_value)) != args[i].mode)
+            args[i].value = convert_modes (...);
+    +
+    +     if (! CONSTANT_P (args[i].value))
+    +       args[i].value = copy_to_reg (args[i].value);
+        }
+
+(args[] is in push order = reversed source order on i386, so
+`i < num_actuals - 1` exempts the leftmost/`this` argument.)  Expected
+to bear on the pre1/pre3/texfunc/pcalc residuals this file already
+attributes to the mod — re-run those matches with it before adopting
+as tools/gcc272 patches/02.  Built and measured only in the gpu2reg
+agent's scratch farm; NOT installed in tools/ (shared with running
+farms).
