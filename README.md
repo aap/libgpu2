@@ -52,7 +52,9 @@ tap layer that logs every pipeline stage's records to files
 
 - **All 23 archive members are reconstructed.**  `OWN=1 tools/build.sh`
   links the replay harness against an archive containing zero 1998
-  objects.
+  objects — and the same sources also build natively with a modern
+  compiler (`tools/build-modern.sh`), bit-identical in output and about
+  4.5× faster.
 - The reconstruction replays the GS dump corpus — the PS2 system menu
   and **Ridge Racer V** — with VRAM output **bit-identical** to the
   original model, and passes the behaviour suite with 0 failures.
@@ -121,9 +123,9 @@ same frame beside it as `shot.png` for comparison.
 own 1998 display code (the same window Sony watched it through):
 
 ```sh
-tools/build.sh                    # build the harness once
+tools/build-modern.sh             # build the harness once
 tools/gsprep.py dump.gs mydump    # unpack the dump once
-tools/gsreplay mydump -w          # window opens, refreshed each vsync
+tools/gsreplay64 mydump -w        # window opens, refreshed each vsync
 ```
 
 Expect seconds per frame on 3D content: every pixel goes through the
@@ -131,10 +133,16 @@ full behavioural pipeline in software — that is the point.  `-v` logs
 every register write, `-s`/`-e` snapshot or stop at chosen
 vsyncs/transfers/primitives (see the header of `tools/gsreplay.c`).
 
-Prerequisites: a 32-bit userland to link against (Void:
-`xbps-install glibc-devel-32bit libX11-32bit`), clang (cross-compiles
-the harness to i386; the model itself is built by the bundled era g++),
-python3 + Pillow for the PNG side.
+**Two builds, one source tree.**  `tools/build-modern.sh` is the
+everyday build: the host's own g++ or clang, natively 64-bit, needing
+nothing but a C++ compiler, libX11 and python3 + Pillow.
+`tools/build.sh` builds the very same sources with the bundled era
+g++ 2.7.2.3 into 1998-authentic i386 code — the byte-matching
+verification build (it additionally wants a 32-bit userland; Void:
+`xbps-install glibc-devel-32bit libX11-32bit`).  Both replay the corpus
+to bit-identical VRAM; the native build is about 4.5× faster.  How one
+source tree satisfies a 1998 and a 2024 compiler at once:
+[doc/notes/modern-port.md](doc/notes/modern-port.md).
 
 ## Who is this for?
 
@@ -184,7 +192,6 @@ results in [doc/MATCHING.md](doc/MATCHING.md).
 
 ## Future work
 
-- A native amd64 build of the model.
 - An interactive GS debugger — live framebuffer, register watch,
   primitive stepping — built on the same stage boundaries Sony's
   `gpu2reg` console and `gpu2vec` taps already use.

@@ -111,9 +111,14 @@ def main():
         subprocess.check_call(
             [sys.executable, os.path.join(TOOLS, 'gsprep.py'), dump, outdir])
 
+    # an existing era-build gsreplay is preferred; otherwise the native
+    # build, which needs no era compiler, orig/ archive or 32-bit userland
+    # (output is bit-identical either way)
     replay = os.path.join(TOOLS, 'gsreplay')
     if not os.path.exists(replay):
-        subprocess.check_call(['sh', os.path.join(TOOLS, 'build.sh')])
+        replay = os.path.join(TOOLS, 'gsreplay64')
+        if not os.path.exists(replay):
+            subprocess.check_call(['sh', os.path.join(TOOLS, 'build-modern.sh')])
 
     for old in os.listdir(outdir):
         if old.startswith('snap') and (old.endswith('.bin')

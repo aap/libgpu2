@@ -26,6 +26,8 @@ Pieces (all in `tools/`, shared history with
     regprobe.c   measure which registers are fatal
     build.sh     clang -m32 + hand ld link; REPLACE="..." hybrid archive,
                  OWN=1 links against our objects only (no 1998 members)
+    build-modern.sh  the same sources under the host g++/clang, native
+                 amd64 -- the everyday build (notes/modern-port.md)
     hwtest.py    build/compare suites for replay on a real DTL-T10000
     gcc272/      the era compiler (see compiler.md)
 
@@ -73,7 +75,11 @@ pcalc, txm → pcrtc/xif → gpu2 → gpu2reg/drawprim, gpu2vec.
   object, bug for bug (the per-object notes document each one found).
 - x87: the objects were compiled for 387.  80-bit excess precision is
   observable behaviour; modern builds must force x87 (`-mno-sse`)
-  wherever tier-3 verification does not exist.
+  wherever tier-3 verification does not exist.  (For the model itself
+  this was then measured: its four runtime-built FP tables and all
+  corpus replays are byte-identical under SSE too, so build-modern.sh
+  asks gcc for `-mfpmath=387` as belt and braces and lets clang use its
+  default -- notes/modern-port.md.)
 - Sony-derived data (original objects, dumps, replay output) is never
   committed; the repo carries only reconstructed source, tools and
   documentation.
