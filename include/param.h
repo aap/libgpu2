@@ -39,7 +39,14 @@ public:
 };
 
 param operator<<(const param &p, int n);
+/* param.o defines both an `int' and a `const int&' shift; gcc 2.7 binds
+ * `p << 4' to the `int' one and nothing in the archive ever calls the
+ * reference form (only __ls__FRC5parami is ever imported).  ISO C++ calls
+ * the pair ambiguous, so modern builds are shown only the form that is
+ * actually used -- src/param.c still *defines* both, unconditionally. */
+#if __GNUC__ < 3
 param operator<<(const param &p, const int &n);
+#endif
 param operator>>(const param &p, int n);
 param operator+(const param &p, const param &o);
 param operator-(const param &p, const param &o);

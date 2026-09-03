@@ -70,9 +70,9 @@ public:
 	long long m_aa4;	/* 0xaa4 */
 	long long m_aac;	/* 0xaac */
 	int m_ab4;		/* 0xab4 */
-	char m_ab8[0xbb0-0xab8];
+	char m_ab8[0xbb0-0xab8 + (sizeof(void *) == 8) * 4];	/* LP64: pcalc.h grows FIX/m_abc.. by 4 here */
 	int SCANMSK;		/* 0xbb0 */
-	char m_bb4[0xbe0-0xbb4];
+	char m_bb4[0xbe0-0xbb4 + (sizeof(void *) == 8) * 4];	/* LP64: send_reg gains 8-byte alignment padding */
 	int maxexp;		/* 0xbe0 */
 	char m_be4[0xbfc-0xbe4];
 				/* 0xbfc vptr */
@@ -106,7 +106,7 @@ class Pre3 {
 public:
 	PCalc *pcalc;		/* 0x000 */
 	int nvtx;		/* 0x004 */
-	char m_008[0x120-0x008];
+	char m_008[0x120-0x008 + (sizeof(void *) == 8) * 4];	/* LP64: pre3.h's `long long area' is 8-aligned */
 	int m_120;		/* 0x120 */
 	char m_124[0x138-0x124];
 	int maxexp;		/* 0x138 */
@@ -130,7 +130,7 @@ public:
  * real fields. */
 class Pre1 {
 public:
-	char m_000[0xac];
+	char m_000[0xac + (sizeof(void *) == 8) * 4];	/* LP64: pre1.h's Pre3* and 8-aligned Z/send_reg */
 
 	Pre1(Pre3 *p);
 	void Put(int addr, long long data);
@@ -141,7 +141,7 @@ class DDA {
 public:
 	PCalc *pcalc;		/* 0x000 */
 	DDATXM *txm;		/* 0x004 */
-	char m_008[0x1e4-0x008];
+	char m_008[0x1e4-0x008 + (sizeof(void *) == 8) * 28];	/* LP64: dda.h's four 8-aligned DDAvalues */
 	int m_1e4;		/* 0x1e4 */
 	int m_1e8;		/* 0x1e8 */
 	int m_1ec;		/* 0x1ec */

@@ -37,7 +37,7 @@ Valid8 TXM::valid8;
  * load bearing (SearchQlevel's assert). */
 class DDA {
 public:
-	char m_000[0x158];	/* 0x000  not read by TXM */
+	char m_000[0x158 + (__GNUC__ >= 3) * 4 + (sizeof(void *) == 8) * 28];	/* 0x000  not read by TXM.  Modern C++ puts dda.h's vptr in front (+4, doc/ABI.md) and LP64 widens two pointers and four DDAvalues (+28).  One line: txm.c's assert __LINE__ is load bearing */
 	int isreg, first, reg_addr;		/* 0x158 */
 	long long reg_data;			/* 0x164 */
 	int px, py, mask;			/* 0x16c */

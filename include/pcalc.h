@@ -39,6 +39,13 @@ struct PVertex {		/* Pre3's vertex, 0x30 bytes */
 
 class Pre3 {
 public:
+	/* pre3.h's Pre3 has a virtual Put and this view of it has not; the
+	 * two agree only because g++ 2.7 puts the vptr *after* the data
+	 * (doc/ABI.md).  Modern C++ puts it first, so a modern build needs
+	 * the hole here or every offset below is one pointer short. */
+#if __GNUC__ >= 3
+	void *era_vptr_hole;
+#endif
 	PCalc *pcalc;		/* 0x000 */
 	int nvtx;		/* 0x004 */
 	int S[3];		/* 0x008 */

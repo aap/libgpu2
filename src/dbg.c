@@ -29,7 +29,7 @@ struct Vertex {			/* 0x30, cf. include/pre3.h */
 
 class Pre3 {
 public:
-	char m_head[0x70];
+	char m_head[0x70 + (sizeof(void *) == 8) * 8];	/* LP64: pre3.h's PCalc* and 8-aligned area */
 	Vertex v[3];		/* 0x070 */
 	long long send_reg;	/* 0x100 */
 	int send_addr;		/* 0x108 */
@@ -53,7 +53,7 @@ struct Slope {			/* 0x28 */
 
 class PCalc {
 public:
-	char m_head[0xb48];
+	char m_head[0xb48 + (sizeof(void *) == 8) * 16];	/* LP64: pcalc.h grows 16 bytes before ozdx */
 	Slope dx;		/* 0xb48 */
 	Slope dy;		/* 0xb70 */
 	char m_tail[0xbfc-0xb98];
@@ -62,7 +62,7 @@ public:
 
 class DDA {
 public:
-	char m_dda[0x250];
+	char m_dda[0x250 + (sizeof(void *) == 8) * 40];	/* LP64: dda.h's DDA grows 40 bytes (never allocated here) */
 	virtual void Put(PCalc *p);
 };
 

@@ -23,6 +23,12 @@ class Memory;
 #define MEMIF_DECLARED
 class MemIF {
 public:
+	/* memif.h's MemIF is virtual; g++ 2.7 parks its vptr after the data,
+	 * so `mem' sits at +0 in both views.  Modern C++ puts the vptr first
+	 * (doc/ABI.md), so this view needs the same hole in front of it. */
+#if __GNUC__ >= 3
+	void *era_vptr_hole;
+#endif
 	Memory *mem;		/* 0x00 */
 };
 #endif

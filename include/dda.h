@@ -52,7 +52,7 @@ struct DDAvalue {		/* 0x4c */
 
 class PCalc {
 public:
-	char m_000[0xabc];	/* 0x000  not read by the DDA */
+	char m_000[0xabc + (sizeof(void *) == 8) * 12];	/* 0x000  not read by the DDA; LP64: pcalc.h grows 12 bytes before m_abc */
 	int m_abc;		/* 0xabc  edge function 0 at the start */
 	int m_ac0;		/* 0xac0 */
 	int m_ac4;		/* 0xac4 */
