@@ -1,117 +1,192 @@
-# libgpu2 decompilation
+# libgpu2
 
-Reconstructing buildable C++ source for Sony's 1998 behavioural reference
-model of the PlayStation 2 Graphics Synthesizer (`libgpu2` Ver1.12.0, the
-renderer behind the SKY EE simulator): 23 unstripped ELF32 i386 objects,
-g++ 2.7.2.3, recovered from a PS2 toolchain ISO.
+Source reconstruction of Sony's `libgpu2` Ver1.12.0 — the 1998
+behavioural model of the PlayStation 2 Graphics Synthesizer that
+rendered for the SKY Emotion Engine simulator.
 
-The originals live in `/u/aap/othersrc/libgpu2` (surveys: `FINDINGS.md`,
-`re/`, `port/`) and, as build inputs, in `orig/` here.  **Neither `orig/`
-nor `dumps/` nor any other Sony-derived data is ever committed** — this
-repo carries only reconstructed source, tools, and documentation.
+The original library survives as 23 unstripped ELF32/i386 objects,
+built with a privately modified g++ 2.7.2.3.  This repository
+reconstructs all 23 as buildable C++ and verifies the result against
+the original objects, the original model's output, and real PS2
+hardware.
 
-## Layout
+> This repository contains reconstructed source, tests, tooling and
+> documentation.  Sony binaries, SDK files and game dump data are not
+> distributed here.
 
-    src/        reconstructed source, one .c per original object (C++ in
-                .c files, as Sony had it; original tree was rooted gpu2u/)
-    include/    reconstructed headers
-    orig/       [not committed] the 1998 objects + archive + libgpu2.h
-    dumps/      [not committed] PCSX2 GS dumps used as test inputs
-    out/        [not committed] replay/render output
-    tools/      the oracle harness (see below)
-    test/       differential + behaviour tests, growing per object
-    doc/        ABI.md (g++ 2.7 ABI facts), STRUCTS.md (layout evidence),
-                compiler.md (era-compiler bring-up)
+<p align="center">
+  <img src="doc/img/osdsys.png" width="49%" alt="PS2 system menu (OSDSYS), rendered by the reconstructed model">
+  <img src="doc/img/rrv.png" width="49%" alt="Ridge Racer V in-race frame, rendered by the reconstructed model">
+</p>
 
-## The oracle pipeline
+*The PS2 system menu and Ridge Racer V, replayed from PCSX2 GS dumps
+through the reconstruction — a build with zero 1998 objects in the
+link — bit-identical to the original model's output.*
 
-One command, PCSX2 GS dump in, PNG out (builds the harness on first use):
+## What is GPU2?
 
-    tools/gs2png dumps/whatever.gs           # -> whatever/snap000_end_fb1.png
-    tools/gs2png dump.gs --vsync             # a PNG per frame
-    tools/gs2png dump.gs --spec tbp:bw:w:h[:name[:psm]]   # manual buffers
+Before final PlayStation 2 development hardware was widely available,
+Cygnus' SKY simulator modeled the Emotion Engine side of the machine —
+CPU, DMA, VIF, VUs and GIF — and handed Graphics Synthesizer register
+writes to Sony's `libgpu2` through a very small API:
 
-`gs2png` unpacks the dump (`gsprep.py`), replays the GIF stream through the
-1998 model (`gsreplay`, snapshotting the 4 MB VRAM in real-GS layout), reads
-PMODE/DISPFB/DISPLAY/SMODE2 out of the dump's privileged-register records to
-find what was on screen, and renders it (`topng.py`).  The dump's own
-embedded screenshot lands beside the output as `shot.png` for comparison.
+```c
+GS_InitSim();
+GS_OpenSim(title, width, height, disp_on, field);
+GS_PutPort(reg, data);        /* the GIF-side register stream */
+GS_PutCtlPort(reg, data);     /* the privileged side */
+GS_SaveImage(filename);
+GS_CloseSim();
+```
 
-Pieces (all in `tools/`, shared history with
-`ps2rev/osdsys/osdbits/tools/gsreplay/` where the harness was built):
+Behind that interface is a complete software model of the GS, written
+as one C++ class per pipeline stage: primitive setup, rasterization,
+texturing, tests and blending, the 4 MB local memory with its
+page/block addressing, and the PCRTC display path — with an X11 window
+as the video output.  Two members of the archive turn out to be Sony's
+own debugging equipment: a Tcl-style register console (`gpu2reg`) and a
+tap layer that logs every pipeline stage's records to files
+(`gpu2vec`).
 
-    gsprep.py    dump.gs -> vram.bin / stream.bin / state blobs / shot.png
-    gsreplay.c   the replayer; -s/-e snapshot specs, -Z/-x experiment knobs,
-                 register gate for the model's fatal-exit design
-    topng.py     VRAM -> PNG (PSMCT32/24/16; 16S table present, unverified)
-    probe.c      behaviour test suite (0 failures against the model)
-    swz.c fmt.c  derive/verify the model's in-page swizzle vs retail
-    regprobe.c   measure which registers are fatal
-    build.sh     clang -m32 + hand ld link; REPLACE="..." hybrid archive,
-                 OWN=1 links against our objects only (no 1998 members)
+## Status
 
-## Decompilation workflow
+- **All 23 archive members are reconstructed.**  `OWN=1 tools/build.sh`
+  links the replay harness against an archive containing zero 1998
+  objects.
+- The reconstruction replays the GS dump corpus — the PS2 system menu
+  and **Ridge Racer V** — with VRAM output **bit-identical** to the
+  original model, and passes the behaviour suite with 0 failures.
+- Byte-level matching against the original objects is far along: many
+  objects are whole-file or near-whole identical, symbol tables and
+  relocation sets match throughout, and the remaining deltas are pinned
+  to two identified modifications in Sony's private compiler (one
+  reproduced, one half-cracked).  Live scoreboard:
+  [doc/MATCHING.md](doc/MATCHING.md).
+- Checked against real silicon: replaying the same streams on a
+  DTL-T10000 devkit, 51 of 85 captured frames are bit-identical across
+  all 4 MB of VRAM; the rest differ at ±1 LSB, largely within the
+  hardware's own run-to-run nondeterminism.
+  Details: [doc/HARDWARE.md](doc/HARDWARE.md).
 
-Replace one object at a time; originals fill the gaps:
+## Architecture
 
-    REPLACE="addrconv slong" tools/build.sh    # hybrid archive
-    tools/gs2png dumps/... -f                  # oracle replay
-    tools/topng.py -c out/A/snap.bin out/B/snap.bin   # byte-diff buffers
+The recovered class structure is a direct image of the GS pipeline,
+one stage handing its state to the next through a virtual `Put`:
 
-Verification tiers:
-1. **Differential**: link Sony's object (symbols prefixed via objcopy) and
-   ours into one test binary, compare per function.  For leaves.
-2. **Oracle replay**: hybrid archive, replay the dump corpus, demand
-   byte-identical VRAM snapshots.
-3. **Byte-matching**: compile with the era g++ 2.7.2.3 (`tools/gcc272/`,
-   see doc/compiler.md) and diff objects.  Required for per-object swaps
-   of the virtual-dispatch pipeline classes — the modern-compiler tiers
-   cannot reproduce the 1998 C++ ABI (doc/ABI.md).
+```text
+GS register stream (GIF)
+      |
+     Pre1      register decode, vertex queue and kick
+      |
+     Pre3      primitive assembly
+      |
+    PCalc      setup engine: slopes, subpixel, AA coverage
+      |
+     DDA       2x4-pixel stamp walker, per-channel interpolation
+      |
+     TXM       texturing: LOD, CLUT lookup, filtering, fog
+      |
+    MemIF      scissor/alpha/Z tests, blending, dithering, formats
+      |
+   Memory      4 MB local memory: pages, blocks, columns, transfers
+```
 
-Attack order: leaf arithmetic (addrconv, slong, div, txm_div, texfunc,
-clut, dbg, drawprim) → pre1/pre3 → memory/bitblt/memif → dda → pcalc, txm
-→ gpu2reg, gpu2vec, pcrtc/xif → gpu2, libgpu2.
+The display side is modeled separately: PCRTC circuit merge → `Xif` →
+an X11 window.  The per-stage `Put` boundaries are natural tap points —
+Sony's own `gpu2vec` instruments exactly these.
 
-Status (doc/MATCHING.md has the per-object scoreboard):
+Layout evidence: [doc/STRUCTS.md](doc/STRUCTS.md) · 1998 C++ ABI:
+[doc/ABI.md](doc/ABI.md) · compiler archaeology:
+[doc/compiler.md](doc/compiler.md)
 
-- **22/23 objects replaced**, every one through all verification tiers.
-  Every member the gsreplay link pulls is reconstructed source:
-  `OWN=1 tools/build.sh` links the whole harness against an archive
-  containing **zero 1998 objects** — probe 0 failures, the dump corpus
-  (OSDSYS r614/o519 + Ridge Racer V) replays bit-identical to pure-Sony.
-- Whole-object byte-identical: addrconv, slong, dbg.  libgpu2 8/9
-  functions exact; most objects have identical symbol tables, relocation
-  sets and .rodata, with residuals confined to two identified mods in
-  Sony's private gcc 2.7.2.3: the vfn-codegen mod (reproduced —
-  `GCC272_1998=1` patched cc1plus) and the arg-presaturation mod
-  (half-cracked; candidate "patch 02" in doc/MATCHING.md makes
-  gpu2reg's single-term handlers byte-identical, adoption pending).
-- Remaining: **gpu2vec** (in progress) — not vector math but Sony's own
-  test-vector tap layer (GPU2VEC wiring MyDDA/MyTXM/MyMemIF/MyMemory
-  subclasses that dump per-stage vectors), the seed for the planned
-  debugger.  Its sibling **gpu2reg** (done) is Sony's jtcl register
-  console: 82 per-register script commands, image uploaders, and the
-  only path to the real PCRTC merge (pseudo-register 0x101).
-- Hardware ground truth (doc/HARDWARE.md): 85-frame suite on a
-  DTL-T10000 — 51/85 frames bit-identical across all 4 MB of VRAM, the
-  rest LSB-only and mostly inside the silicon's own run-to-run
-  nondeterminism envelope; the stable model-vs-silicon residue on r614
-  is 60 words (0.006%).
+## Watching it render
 
-Long-term goal beyond a buildable library: a native amd64 build and an
-interactive GS debugger on top of it — live framebuffer view, register
-state, stepping through primitives (the virtual-Put tap architecture is
-exactly the hook point for this).
+The model consumes raw GIF-stream traffic.  The easiest source is a
+PCSX2 GS dump (a `.gs`/`.gs.zst` file holding the VRAM seed, register
+state and one or more frames of GIF stream).
 
-## Ground rules
+**The PNG path** — one command, no X11 involved:
 
-- Struct layouts come from evidence only: `__builtin_new` sizes, ctor
-  stores, member-access offsets (doc/STRUCTS.md cites instructions).
-  The DeepSeek-era generated material in othersrc (`FINDINGS.md`, `re/`)
-  is leads, not truth — five of its claims are already disproven
-  (doc/STRUCTS.md §"prior-claim corrections").
-- Behaviour claims get measured against the model before being written
-  down; keep observation and inference marked apart.
-- x87: the objects were compiled for 387.  80-bit excess precision is
-  observable behaviour; modern builds must force x87 (`-mno-sse`) until
-  tier-3 verification exists.
+```sh
+tools/gs2png dump.gs              # -> dumpname/snap000_end_fb1.png
+tools/gs2png dump.gs --vsync      # a PNG per frame
+```
+
+This unpacks the dump, builds the harness on first use, replays the
+stream through the model, works out what was on screen from the dump's
+privileged registers, and renders it — with PCSX2's own render of the
+same frame beside it as `shot.png` for comparison.
+
+**The X11 path** — watch the model display the frame live, through its
+own 1998 display code (the same window Sony watched it through):
+
+```sh
+tools/build.sh                    # build the harness once
+tools/gsprep.py dump.gs mydump    # unpack the dump once
+tools/gsreplay mydump -w          # window opens, refreshed each vsync
+```
+
+Expect seconds per frame on 3D content: every pixel goes through the
+full behavioural pipeline in software — that is the point.  `-v` logs
+every register write, `-s`/`-e` snapshot or stop at chosen
+vsyncs/transfers/primitives (see the header of `tools/gsreplay.c`).
+
+Prerequisites: a 32-bit userland to link against (Void:
+`xbps-install glibc-devel-32bit libX11-32bit`), clang (cross-compiles
+the harness to i386; the model itself is built by the bundled era g++),
+python3 + Pillow for the PNG side.
+
+## Who is this for?
+
+- **PS2 emulator developers** — a vendor-written, behaviour-level
+  ground truth for GS rasterization, cross-checked against real
+  silicon: fixed-point setup, stamp traversal, texture sampling,
+  blending and dithering rules that register-level docs do not pin
+  down.
+- **Graphics and console history** — how Sony modeled the GS in
+  software during the PS2's development, complete with their own
+  debugging tools.
+- **PS2 developers** — together with the SKY simulator this is a
+  path to running EE-side code against a 1998-authentic software PS2;
+  making that practical needs more work on the SKY side and is an
+  active goal here.
+
+## Repository map
+
+```text
+src/       reconstructed C++ source, one file per original object
+include/   reconstructed headers
+test/      differential and behavioural tests, per object
+tools/     replay harness, renderers, era compiler, hardware suite
+doc/       MATCHING.md   per-object scoreboard + byte-matching lessons
+           RECONSTRUCTION.md  how the source was produced and verified
+           HARDWARE.md   model vs real GS silicon
+           ABI.md / STRUCTS.md / compiler.md   the underlying evidence
+           notes/        a write-up per object
+
+orig/      [not committed]  the 1998 objects, used locally for verification
+dumps/     [not committed]  GS dump corpus used as test input
+out/       [not committed]  replay/render output
+```
+
+## Verification, in one paragraph
+
+Correct-looking output is not considered sufficient.  Every
+reconstructed object passed three gates: a differential test linking it
+into one binary with the original and comparing every observable over
+millions of calls; an oracle replay demanding bit-identical VRAM
+against the original model on real game streams; and byte-level
+comparison of the era-compiler build against the 1998 object — sections,
+relocations, symbol tables, and .text function by function, with the
+residuals attributed to Sony's compiler modifications and documented.
+The method is in [doc/RECONSTRUCTION.md](doc/RECONSTRUCTION.md), the
+results in [doc/MATCHING.md](doc/MATCHING.md).
+
+## Future work
+
+- A native amd64 build of the model.
+- An interactive GS debugger — live framebuffer, register watch,
+  primitive stepping — built on the same stage boundaries Sony's
+  `gpu2reg` console and `gpu2vec` taps already use.
+- Finishing the second era-compiler patch, which would close most of
+  the remaining byte-match residuals.

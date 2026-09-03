@@ -18,6 +18,8 @@ tools/gsreplay
 # replay/render output
 snap*.bin
 *.png
+# ...except the README screenshots (verified output of our own build)
+!doc/img/*.png
 
 # era compiler: binaries land here, keep the scripts/docs
 tools/gcc272/debs/
