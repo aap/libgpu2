@@ -64,14 +64,14 @@ resulting object will differ from the 1998 one in `.comment` only.
 | function | bytes | result |
 |---|---|---|
 | `GS_InitSim` | 85 | **exact** |
-| `GS_OpenSim` | 1024 | **exact** apart from 1 byte: the `call initPCRTC` displacement, which moves only because initPCRTC is larger |
+| `GS_OpenSim` | 1024 | **exact** apart from 1 byte: the `call initPCRTC` displacement, which moves only because GS_SaveImage (between it and initPCRTC) is 16 B smaller |
 | `GS_CloseSim` | 16 | **exact** |
 | `GS_PutPort` | 68 | **exact** |
 | `GS_PutCtlPort` | 354 | **exact** |
 | `GS_SetSaveImageArea` | 63 | **exact** |
 | `GS_GetSaveImageArea` | 63 | **exact** |
 | `GS_SaveImage` | 1209 → 1193 | register allocation only (below) |
-| `initPCRTC__Fv` | 458 → 537 | register allocation only (below) |
+| `initPCRTC__Fv` | 458 | **exact** since the gpu2 drop — see "closed" below |
 
 `test/run_libgpu2_diff.sh` links the 1998 object and ours into one binary
 with the entry points renamed old_*/new_* — their bss globals are *local*
@@ -81,7 +81,7 @@ values, save-area state and the `GS_SaveImage` output bytes:
 
     39710 checks, 0 failures
 
-## The two residuals
+## The two residuals (initPCRTC's since closed)
 
 Both are register/spill-slot allocation, with the same signature: the
 original keeps the running DImode accumulator of an `|`-chain in a register
@@ -111,6 +111,16 @@ associativity (525), splitting the first term out (537), dropping the `data`
 variable (537), `register` on any local (537), declaration order (537),
 `unsigned long long` (537), extra `long long` temp (537), inlining `magh-1`
 (533).  Every `-O`-level and flag combination listed above.
+
+**Closed (2026-09-03, with the gpu2 drop): the cause was outside this TU.**
+The `Put(reg, data)` calls are `GPU2::Put`, and the 1998 gpu2.o sets
+`%eax = 1` on the normal path — the method's true type is `int
+GPU2::Put(int, long long)`.  Once include/gpu2.h declares that return
+type, every call insn in initPCRTC clobbers a value register, the DImode
+accumulator claims dx:cx first, and **initPCRTC comes out byte-identical
+at its 1998 size (458 B)** — none of the intra-TU spellings above could
+ever have produced that.  GS_SaveImage's allocation residual remains,
+now the file's only one (8/9 functions exact).
 
 ## Resolved: where `field` goes
 

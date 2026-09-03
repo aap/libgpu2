@@ -58,10 +58,16 @@
 #undef Depth
 
 #include "memory.h"
+
+/* The 1998 pcrtc.C and gpu2.C sat beside each other and spelled the
+ * include "../gpu2u/xif.h"; that spelling is the assert __FILE__ string
+ * in both pcrtc.o and gpu2.o (xif.o itself says "xif.h").  See XIF_FILE
+ * in xif.h. */
+#define XIF_FILE "../gpu2u/xif.h"
 #include "xif.h"
 
-/* xif.h leaves its own assert() defined, with "xif.h" baked in as the file
- * name; ours has to say "pcrtc.h". */
+/* xif.h leaves its own assert() defined, with XIF_FILE baked in as the
+ * file name; ours has to say "pcrtc.h". */
 #undef assert
 #define assert(e) \
 	((e) ? (void)0 : __assert_fail(#e, "pcrtc.h", __LINE__, \
@@ -735,8 +741,7 @@ public:
 	{
 		XWindowDump *dump;
 
-		dump = new XWindowDump;
-		dump->func = func;
+		dump = new XWindowDump(func);
 		dump->out.Resize(w, h);
 		xif = dump;
 	}

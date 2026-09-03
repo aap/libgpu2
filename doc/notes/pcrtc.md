@@ -324,6 +324,12 @@ pcrtc.o and gpu2.o are the only objects that inline `Frame2d`'s and
    `void (*)(int, int, const unsigned int *)` - the `const` is in
    PCRTCxif's mangled name, `...PFiiPCUi_v`.
 
+**Status: all three fixes are applied** (landed with the gpu2 drop,
+2026-09-03, which inlines the same ctors and forces them).  Verified:
+xif.o is bit-identical before/after, this object's dump ctor is +51 and
+its `.rodata` identical bar the two pad bytes, differential re-run 0
+failures, 20-object oracle green.
+
 Also proven here: `PCRTCxif`'s dump constructor calls `dump->out.Resize(w,
 h)` - it sizes the **output** frame, not `draw`; `PrepareImgBuffer` (which
 resizes `draw`) would be a virtual call, and the object has none.

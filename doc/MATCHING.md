@@ -9,7 +9,7 @@ expected even for perfect source.
 | object | .text | .data | relocs | verification |
 |---|---|---|---|---|
 | addrconv | **100% byte-identical** (+.rodata) | identical | identical | differential 80.5M calls 0 mismatch; oracle replay bit-identical; probe suite 0 failures |
-| libgpu2 | 7/9 functions exact (GS_OpenSim off only by a callee-size displacement); GS_SaveImage + initPCRTC differ in DImode register/spill allocation only (doc/notes/libgpu2.md) | identical (+.rodata/.bss/.comment/.note) | identical (195 records) | differential 39710 checks 0 failures; oracle replay bit-identical (REPLACE="addrconv libgpu2") |
+| libgpu2 | **8/9 functions exact** (GS_OpenSim off only by a callee-size displacement, now caused by GS_SaveImage's -16); GS_SaveImage differs in DImode register/spill allocation only (doc/notes/libgpu2.md).  initPCRTC became byte-identical when include/gpu2.h declared `int GPU2::Put(int, long long)` — a callee's declared return type is byte-visible in the caller's allocation (gpu2 lessons below) | identical (+.rodata/.bss/.comment/.note) | identical (195 records) | differential 39710 checks 0 failures; oracle replay bit-identical (REPLACE="addrconv libgpu2") |
 | pre1 | 2825/2889 bytes; 3/6 fn byte-identical, 2 more identical bar displacement/jump-table addresses; Put 25 insns short | n/a | identical | joint pre1+pre3 differential: 2M register writes, 711661 PCalc-boundary state snapshots, 0 mismatches; oracle bit-identical incl. a full RRV game dump (301k vertex kicks) |
 | pre3 | 2528/2688 bytes; 5/10 fn byte-identical, 3 more instruction-identical; Triangle 39 insns short | n/a (+.rodata/_vt.4Pre3 identical) | identical | same joint differential + oracle |
 | slong | **whole .o cmp-identical** (1227/1227) | n/a | identical | 6.4M calls 0 mismatch |
@@ -25,12 +25,13 @@ expected even for perfect source.
 | memory | 5690/5562 B; shape reproduced everywhere, no function byte-exact; `ReadStamp` (both classes) same size | n/a (+.rodata identical) | **set + order identical (144)**, **symbol table identical** | differential 4.80M calls 0 mismatch (own 16 MB Memory each side, config block compared every call, VRAM every 512 + per phase); hybrid oracle bit-identical |
 | memif | **9/19 fn byte-identical** (1237 of 7357 B); 2 more (DATest, SetTEST) same size and same instruction stream bar register allocation; 7405/7357 B | n/a (+.rodata identical but for one `89 f6`-vs-`00 00` pad) | **set + order identical (87)**; symbol table identical bar `_vt.5MemIF`'s position | differential 5.30M calls 0 mismatch (memory+memif linked per side); hybrid oracle bit-identical |
 | dda | **21/28 fn byte-identical** (2478 of 7320 fn bytes), 22/28 instruction-identical; of the 7 that differ, `Primitive` differs only in two call displacements and the other 6 are shape-exact (Stamping 2928/2944, InitWalk 1198/1189, ZaddSpan and sign_extent(long long) same size, ExtCslope/CaddSpan -2 each) | n/a (+.rodata `_vt.3DDA`, .note, .comment identical) | set+order identical (offsets shift with the size deltas); **symbol table identical bar 4 sizes** | differential 100000 primitives / 1.62M TXM pushes, 0 mismatches (whole 0x254 object compared on every downstream TXM call and after every Put; a 1-bit change to one sign-extend width is caught in 12 iterations); hybrid oracle bit-identical: probe 0 failures, r614, o519 and three RRV game dumps |
-| pcrtc | **9/43 fn byte-identical**, 19004/19309 B; every function shape-exact; `oldDispPixelMag` (1418 B), `SetDISPLAY1/2` (444 B), `SetSMODE1`, `DisplayPcrtc` same size; the ctors +48 each (one cse fold), the display loops -24..-153 (compiler-mod address forms + the loop-invariant hoisting they enable) | n/a | **set identical**, **symbol table identical** (names, bindings, types and order), `.rodata` reloc order identical, `.note`/`.comment` identical; `.rodata` identical bar two `8d 76` pad bytes *once xif.h's `__FILE__` is parameterised* (pcrtc.c wants `"../gpu2u/xif.h"`, xif.c `"xif.h"`) | differential 2.00M register writes / 140625 displays / 42.1M Xifbase callbacks / 2.18M object+VRAM checks, 0 mismatches (fake 9-entry Xifbase, own 16 MB Memory each side; five 1-bit canaries caught in 9-895 iterations); 18-object hybrid replays r614, o519 and 7+ RRV dumps bit-identically, probe 0 failures, `gsreplay -w` runs clean |
+| pcrtc | **10/43 fn byte-identical**, 18988/19309 B; every function shape-exact; `oldDispPixelMag` (1418 B), `SetDISPLAY1/2` (444 B), `SetSMODE1`, `DisplayPcrtc` same size; the plain ctor +48 (one cse fold) and the dump ctor +51 (was +67 before the xif.h fixes landed with gpu2), the display loops -24..-153 (compiler-mod address forms + the loop-invariant hoisting they enable) | n/a | **set identical**, **symbol table identical** (names, bindings, types and order), `.rodata` reloc order identical, `.note`/`.comment` identical; `.rodata` identical bar two `8d 76` pad bytes (xif.h's `__FILE__` is parameterised as `XIF_FILE`: pcrtc.h defines `"../gpu2u/xif.h"`, xif.c's spelling `"xif.h"` is the default) | differential 2.00M register writes / 140625 displays / 42.1M Xifbase callbacks / 2.18M object+VRAM checks, 0 mismatches (fake 9-entry Xifbase, own 16 MB Memory each side; five 1-bit canaries caught in 9-895 iterations); 18-object hybrid replays r614, o519 and 7+ RRV dumps bit-identically, probe 0 failures, `gsreplay -w` runs clean |
+| gpu2 | **12/25 fn byte-identical** (all six own functions but the ctor — dumpCRT, GetCRT, Get, Put, ResizeWindow — plus 7 weak inlines); `__4GPU2Pciii` +96 = the two inlined PCRTCxif-ctor arms' documented +48/+51 plus ~12 B of the Reciproc/PPOut pop quirk (lessons below); the 12 differing weak inlines are byte-identical (reloc-masked, both directions) to what the same headers emit into pcrtc.o — pcrtc/xif's accepted residuals, inherited, no residual class of gpu2's own | n/a (+`.data`/`.bss`/`.note`/`.comment` identical) | set + order identical (133 `.rel.text` + 33 `.rel.rodata`); `.rodata` identical bar GAS's two `8d 76` pad bytes; **symbol table identical** (names, bindings, types, order; 13 sizes track the fn sizes) | differential 3.41M checks 0 failures (all four ctor disp arms + the assert arm, Put sweep vs real PCRTCdmy and fake PCRTCxif vtables, MemRead/blend sweeps, two DrawPixel→dumpCRT→GetCRT frame round-trips; routing and r_size canaries caught); 20-object hybrid: probe 0 failures, r614/o519/RRV end-state md5s equal pure-Sony; the gsreplay link pulls only decompiled members (`--print-map` + nm: no gpu2reg/drawprim/gpu2vec symbols) |
 | txm | **18/41 fn byte-identical**, 24570/25485 B (96.5%); every function shape-exact; `Texturing` (448 B), `ExtCov` (426), `AA1`, `SetCLAMP`, `SetTEX2`, `SetTEXCLUT`, `ClampQ` and `LMNFilter` same size with the same instruction stream (register allocation only), `NFilter` same instruction count; the rest is `Put` -528 and `GetOneTexel` -160, i.e. the compiler-mod address forms and the register pressure they cause | identical (the 0x100 `TXM::valid8`), and `.ctors`/`.note`/`.comment` with it; `.rodata` identical but for one `89 f6`-vs-`00 00` pad pair | **set + order identical (205)**, **symbol table identical** | differential 130.1M calls / 129.8M comparisons / 365650 fatal arms, 0 mismatches (own 96 MB mapped VRAM and fake MemIF each side; the whole 0x72c object *and* the clut[] overrun slack behind it compared after every call, plus every PixelStamp field TXM writes; six 1-token mutations all caught); 18-object hybrid: probe 0 failures, r614, o519 and four RRV dumps (1.4-18 MB) bit-identical to a pure-Sony build |
 
-Nineteen of 23 objects replaced (addrconv libgpu2 pre1 pre3 slong div
+Twenty of 23 objects replaced (addrconv libgpu2 pre1 pre3 slong div
 txm_div texfunc param pcalc dbg clut bitblt xif memory memif dda
-pcrtc txm); the hybrid archive
+pcrtc txm gpu2 — every member the gsreplay link pulls); the hybrid archive
 replays r614, o519 and the RRV game dumps bit-identically (probe 0
 failures).  New reusable lesson from txm_div: the era libc5 <math.h>
 declared math functions __attribute__((__const__)) and gcc 2.7 pops a
@@ -386,3 +387,58 @@ a class with no vtable in the TU (`Bits`, `Unpack16`, `TexCoordN`,
 `TexClutCtx::Context`) is not emitted at all.  Their order in the class
 body is therefore byte-visible, and getting it right is what makes the
 symbol table identical.
+
+New lessons from gpu2 (details in doc/notes/gpu2.md):
+
+* **A declared return type is byte-visible at every call site.**
+  `GPU2::Put` returns int (the object sets %eax = 1); declaring it so in
+  include/gpu2.h makes each call insn clobber a value register, and that
+  alone flips libgpu2.o's `initPCRTC` DImode allocation into the 1998
+  layout — **initPCRTC is now byte-identical** (was +79, the documented
+  allocation residual).  When a caller's register allocation won't
+  settle, check the *callees' declared return types* against `%eax`
+  liveness in the caller.
+* **A local pointer whose last use may clobber it.**  `Get` needs
+  `Memory *m = mem; return m->bitblt.ReadPixel(m);` — one pseudo, so
+  the address arithmetic destroys it (`push; add $0x400144; push`);
+  `mem->bitblt.ReadPixel(mem)` keeps the member load alive in a second
+  register.  Same family as &param pinning, opposite direction.
+* **`w*4*h`, not `h*4*w`.**  gcc 2.7 regroups a constant-in-the-middle
+  product: the spelling `w*4*h` emits `lea 0(,h,4); imul w`.  Read the
+  lea's index register to recover which operand was written first —
+  it is the *other* one.
+* **`if (c) return X; return 0;` vs the moved-block shape** (third data
+  point after txm's): `if (r_count < r_size) return r_buf[r_count++];
+  return 0;` keeps the fall-through `return 0` inline with `ja` to the
+  tail block — and the branch target label kills cse, which is why the
+  original loads r_count twice.  The `>=`-first spelling gets rotated by
+  the jump optimizer into a shape with one shared load.
+* **The three xif.h fixes predicted by pcrtc.md are applied and proven**:
+  the `XWindowDump` ctor takes the callback (`XWindowDump(void (*f)(int,
+  int, const unsigned int *) = 0) { func = f; bg = 0; }`), xif.h's assert
+  `__FILE__` is the *spelling of the 1998 #include* (parameterised as
+  `XIF_FILE`; pcrtc.o and gpu2.o say `"../gpu2u/xif.h"`), and
+  `Frame2d::Frame2d` mallocs from its parameters.  xif.o is bit-identical
+  before/after; pcrtc.o's dump ctor +67 → +51 and its `.rodata` is
+  identical-bar-pad.  UPDATEMERGE stays if/else: the ternary-minus
+  spelling matches the ctors' shared subtraction but breaks
+  SetDISPLAY1/2's 444-byte size match (the ctor sharing is cross-jumping,
+  not source shape).
+* **The Reciproc pop signature is context-independent and still
+  unexplained**: around `__8Reciproc` (and only there among the seven
+  member-ctor calls), and around PPOut's `new(8)`, the 1998 compiler
+  flushes pending arg-pops before the call and pops immediately after
+  (`add $0xc; push; call; add $0x4`), in pcalc.o's out-of-line ctor,
+  in gpu2.o's inlined copy, and in gpu2vec.o alike.  Member dtors,
+  explicit mem-init lists, and dtors on the newed class were all tried
+  and change nothing; stock 2.7.2.3 defers.  Presumed a facet of the
+  unreproduced argument-presaturation mod (the same sites also
+  pre-evaluate the inline ctor's pointer argument before the
+  allocation call, which `{ DDA *d = dda; ... }` reproduces but the
+  pops do not follow).
+* **gpu2.c declares its own pipeline views** (dbg.c pattern) because
+  the per-object headers carry conflicting stand-ins; the ctor bodies
+  are copied verbatim from pcalc.h/pre3.h/dda.h and inline to the same
+  bytes.  MemIF's ctor had to be a header inline in 1998 (gpu2.o
+  inlines it); we repeat the one-line body in gpu2.c as
+  `inline MemIF::MemIF` rather than disturb memif.h/memif.c.

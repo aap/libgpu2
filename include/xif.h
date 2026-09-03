@@ -27,11 +27,18 @@
 #include <stdlib.h>
 
 /* The era <assert.h> expansion, written out so that the __FILE__ string is
- * "xif.h" no matter which -I found this header. */
+ * the *spelling of the 1998 #include*, not whatever -I resolved: xif.c said
+ * "xif.h", pcrtc.C and gpu2.C said "../gpu2u/xif.h" (pcrtc.h defines
+ * XIF_FILE accordingly before including this header; both objects carry
+ * that exact string). */
+#ifndef XIF_FILE
+#define XIF_FILE "xif.h"
+#endif
 extern "C" void __assert_fail(const char *, const char *, unsigned int,
 	const char *) __attribute__ ((__noreturn__));
+#undef assert
 #define assert(e) \
-	((e) ? (void)0 : __assert_fail(#e, "xif.h", __LINE__, \
+	((e) ? (void)0 : __assert_fail(#e, XIF_FILE, __LINE__, \
 		__PRETTY_FUNCTION__))
 
 class Xifbase {
@@ -93,16 +100,9 @@ public:
 };
 
 /* A rectangle of 32-bit pixels.  Everything here is inline, so nothing of
- * Frame2d reaches an object file except the strings its asserts mention -
- * g++ 2.7 builds RTL for an inline member as soon as it parses it, which is
- * why xif.o, pcrtc.o and gpu2.o all carry the whole set even where no code
- * uses them.
- *
- * The next few lines are spaced so that the three asserts whose __LINE__ is
- * baked into the 1998 objects land where they landed in 1998: Resize on
- * 139, Set on 146 and Copy on 158.  Do not reflow this block without
- * re-checking doc/notes/xif.md.
- */
+ * Frame2d reaches an object file except its assert strings.  Spaced so the
+ * asserts land on their 1998 lines: Resize 139, Set 146, Copy 158; do not
+ * reflow without re-checking doc/notes/xif.md. */
 
 class Frame2d {
 public:
@@ -115,7 +115,7 @@ public:
 		assert(width > 0 && height > 0);
 		w = width;
 		h = height;
-		b = (unsigned int *)malloc(h*4*w);
+		b = (unsigned int *)malloc(height*4*width);
 	}
 	~Frame2d() { free(b); }
 
@@ -175,12 +175,13 @@ public:
 	Frame2d out;		/* 0x04  what the callback gets */
 	Frame2d draw;		/* 0x10  what DrawPixel writes into */
 	unsigned int bg;	/* 0x1c */
-	void (*func)(int, int, unsigned int *);	/* 0x20 */
+	void (*func)(int, int, const unsigned int *);	/* 0x20 */
 
-	XWindowDump() : out(256, 256), draw(256, 256)
+	XWindowDump(void (*f)(int, int, const unsigned int *) = 0)
+		: out(256, 256), draw(256, 256)
 	{
+		func = f;
 		bg = 0;
-		func = 0;
 	}
 	~XWindowDump() { }
 

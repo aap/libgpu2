@@ -7,8 +7,10 @@
 # Prerequisites (Void):  xbps-install -S glibc-devel-32bit libX11-32bit
 #
 # The link uses orig/lib/libgpu2-patched.a (GS_SaveImage fwrite 3->4, see
-# othersrc FINDINGS.md section 9); gsreplay never calls GS_SaveImage, so
-# pristine vs patched makes no difference to it.
+# othersrc FINDINGS.md section 9 -- the patch is in the libgpu2.o member;
+# the archive's gpu2.o member is byte-identical to pristine).  No harness
+# binary calls GS_SaveImage, so pristine vs patched makes no difference;
+# our src/libgpu2.c matches the PRISTINE object, original bug intact.
 #
 # HYBRID BUILDS (decompilation verification): objects listed in $REPLACE are
 # taken from ../src (compiled here) instead of the original archive, e.g.
@@ -36,11 +38,12 @@ if [ -n "$REPLACE" ]; then
             # the era compiler: old C++ ABI, so the object drops straight in.
             # libgpu2.o was built differently from the other 22 objects
             # (RH 4.2 gcc 2.7.2.1, -O2 -m386; see doc/notes/libgpu2.md).
-            # xif.c and pcrtc.c include Xlib.h: -idirafter gets the host's
-            # X11 headers searched after the era libc ones (doc/notes/xif.md).
+            # xif.c, pcrtc.c and gpu2.c include Xlib.h (via xif.h): -idirafter
+            # gets the host's X11 headers searched after the era libc ones
+            # (doc/notes/xif.md).
             case $m in
             libgpu2) era="env GCC272_ALT=rh42-2721 gcc272/g++272 -O2 -m386";;
-            xif|pcrtc) era="env GCC272_1998=1 gcc272/g++272 -O -idirafter /usr/include";;
+            xif|pcrtc|gpu2) era="env GCC272_1998=1 gcc272/g++272 -O -idirafter /usr/include";;
             *)       era="gcc272/g++272 -O";;
             esac
             ${CC272:-$era} -I../include -c "../src/$m.c" -o "obj/$m.o"
