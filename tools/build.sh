@@ -16,8 +16,18 @@
 # taken from ../src (compiled here) instead of the original archive, e.g.
 #     REPLACE="addrconv slong" ./build.sh
 # Not-yet-decompiled objects keep coming from the 1998 archive.
+#
+# OWN BUILDS:  OWN=1 ./build.sh  compiles every decompiled module and links
+# against an archive containing ONLY our objects - no 1998 members at all.
+# Possible since the 20-object milestone: the link pulls nothing beyond
+# $OWNLIST (gpu2reg/drawprim/gpu2vec are Sony's never-linked jtcl console
+# and test-vector tap layer; they join the list when decompiled).
 set -e
 cd "$(dirname "$0")"
+
+OWNLIST="addrconv libgpu2 pre1 pre3 slong div txm_div texfunc param pcalc \
+dbg clut bitblt xif memory memif dda pcrtc txm gpu2"
+[ -n "$OWN" ] && REPLACE=$OWNLIST
 
 ORIG=../orig
 INC=$ORIG/include
@@ -49,12 +59,20 @@ if [ -n "$REPLACE" ]; then
             ${CC272:-$era} -I../include -c "../src/$m.c" -o "obj/$m.o"
         fi
     done
-    cp "$ORIG/lib/libgpu2-patched.a" "$LIB"
-    for m in $REPLACE; do
-        ar d "$LIB" "$m.o"
-        ar r "$LIB" "obj/$m.o"
-    done
-    echo "hybrid archive: replaced [$REPLACE]"
+    if [ -n "$OWN" ]; then
+        for m in $REPLACE; do
+            ar q "$LIB" "obj/$m.o"
+        done
+        ar s "$LIB"
+        echo "own archive: [$REPLACE] - no 1998 objects"
+    else
+        cp "$ORIG/lib/libgpu2-patched.a" "$LIB"
+        for m in $REPLACE; do
+            ar d "$LIB" "$m.o"
+            ar r "$LIB" "obj/$m.o"
+        done
+        echo "hybrid archive: replaced [$REPLACE]"
+    fi
 else
     cp "$ORIG/lib/libgpu2-patched.a" "$LIB"
 fi
